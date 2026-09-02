@@ -7,14 +7,13 @@ glitch_belt.py — генератор печатных схем бисерных
 ----------
 * растрирует надпись (латиница/кириллица) встроенным шрифтом 5×7;
 * накладывает глитч-эффекты: RGB-сдвиг (маджента/циан), сдвиг срезов,
-  «выпадения» пикселей, шумовые искры, блэкаут-блоки;
+  «выпадения» пикселей, блэкаут-блоки;
 * строит сетку кружочков с фиксированным шагом в миллиметрах — под печатную
   оснастку с отверстиями: расстояния и диаметры всегда одинаковы;
 * номер внутри кружка — порядковый номер цвета из палитры (номер коробочки):
   достал бисерину из коробочки №N → положил на кружок №N;
 * выпускает самодостаточный HTML (A4, inline SVG): сегменты пояса с линейками
-  и линиями отреза, легенда с подсчётом бисерин, калибровочная линейка,
-  опциональная раскладка по рядам.
+  и линиями отреза, легенда с подсчётом бисерин, калибровочная линейка.
 
 Зависимости: только стандартная библиотека Python 3.8+.
 
@@ -59,8 +58,6 @@ h1 { font-size: 5.2mm; margin: 0 0 1.2mm; letter-spacing: 0.2mm; }
 h2 { font-size: 4.2mm; margin: 0 0 2mm; }
 .sub { font-size: 3mm; color: #555; margin: 0 0 3mm; }
 .card { border: 0.35mm solid #333; border-radius: 2mm; padding: 4mm; margin: 0 0 4mm; }
-.hint { background: #f2f2f2; border-radius: 1.5mm; padding: 2.5mm 3mm;
-        font-size: 3.1mm; margin-top: 3mm; }
 table { border-collapse: collapse; }
 .params td { font-size: 3.1mm; padding: 0.9mm 2.5mm 0.9mm 0; vertical-align: top; }
 .params td.k { color: #666; white-space: nowrap; width: 44mm; }
@@ -76,9 +73,6 @@ table { border-collapse: collapse; }
 .seg-title { font-size: 2.9mm; color: #444; margin: 0 0 0.8mm; }
 .cut { border-top: 0.3mm dashed #9a9a9a; margin: 2.2mm 0 3.2mm; font-size: 2.6mm;
        color: #8a8a8a; text-align: right; }
-.rowlist td { font-size: 2.9mm; padding: 0.8mm 2mm 0.8mm 0;
-              border-bottom: 0.15mm solid #e2e2e2; }
-.rowlist td.n { color: #666; white-space: nowrap; }
 @media screen {
   body { background: #d9d9d9; padding: 6mm 0; }
   .page { background: #fff; width: 194mm; min-height: 281mm; margin: 0 auto 6mm;
@@ -232,8 +226,7 @@ def pick_tracking(text: str, cols: int, want: int, symmetrize: bool):
 
 # ------------------------------------------------------------ ПАЛИТРА ---
 
-REQUIRED_ROLES = ("bg", "main", "fringe_left", "fringe_right",
-                  "noise_bright", "noise_dim")
+REQUIRED_ROLES = ("bg", "main", "fringe_left", "fringe_right")
 
 
 def load_palette(path: Path) -> dict:
@@ -285,7 +278,6 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
     role = pal["role"]
     c_bg, c_main = role["bg"], role["main"]
     c_fl, c_fr = role["fringe_left"], role["fringe_right"]
-    c_nb, c_nd = role["noise_bright"], role["noise_dim"]
 
     grid = [[c_bg] * cols for _ in range(rows_n)]
     rng = random.Random(seed)
@@ -313,16 +305,13 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
                             row[cc] = col_id
         # 2) основной текст поверх
         put_text()
-        # 3) «выпадения» пикселей (гаснут или мерцают)
-        p_dim, p_bright = 0.18 * g, 0.07 * g
+        # 3) «выпадения» пикселей (бисерина пропадает в фон)
+        p_dim = 0.25 * g
         for r in range(7):
             for c in range(W):
                 if tgrid[r][c] and grid[top + r][left + c] == c_main:
-                    x = rng.random()
-                    if x < p_dim:
-                        grid[top + r][left + c] = c_nd
-                    elif x < p_dim + p_bright:
-                        grid[top + r][left + c] = c_nb
+                    if rng.random() < p_dim:
+                        grid[top + r][left + c] = c_bg
         # 4) сдвиг срезов: горизонтальные полосы едут влево/вправо
         zone0, zone1 = max(0, top - 1), min(rows_n, top + 8)
         opts = [d for d in (-3, -2, -1, 1, 2, 3)][: 2 + int(round(2 * g))] or [1]
@@ -334,13 +323,7 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
             for r in range(r0, min(r0 + h, rows_n)):
                 row = grid[r]
                 grid[r] = row[d:] + row[:d]
-        # 5) шумовые искры по фону текстовой зоны
-        for _ in range(round(g * rows_n * cols * 0.015)):
-            r = rng.randrange(zone0, zone1)
-            c = rng.randrange(cols)
-            if grid[r][c] == c_bg:
-                grid[r][c] = c_nb if rng.random() < 0.5 else c_nd
-        # 6) блэкаут-блоки: куски надписи «пропадают»
+        # 5) блэкаут-блоки: куски надписи «пропадают»
         for _ in range(int(round(g * 3))):
             bw, bh = rng.randint(4, 10), rng.randint(1, 2)
             r_hi = max(zone0 + 1, zone1 - bh + 1)
@@ -458,24 +441,6 @@ def ruler_svg(width_mm: float = 100.0, caption: str = "") -> str:
 
 # ---------------------------------------------------------------- HTML ---
 
-def runs_of(row):
-    """Сжатие ряда в повторения: [(№, количество), ...]."""
-    out, prev, n = [], None, 0
-    for v in row:
-        if v == prev:
-            n += 1
-        else:
-            if prev is not None:
-                out.append((prev, n))
-            prev, n = v, 1
-    out.append((prev, n))
-    return out
-
-
-def fmt_runs(row) -> str:
-    return "  ".join(f"{v}×{n}" for v, n in runs_of(row))
-
-
 def render_document(grid, pal, args, stats, counts):
     """Сборка самодостаточного HTML. Возвращает (html, meta)."""
     cols, rows_n = len(grid[0]), len(grid)
@@ -506,23 +471,7 @@ def render_document(grid, pal, args, stats, counts):
         pages[-1].append(i)
         cap -= block_h
 
-    # --- страницы раскладки по рядам ---
-    row_pages = []
-    if args.rowlist:
-        budget = usable_h - 18.0
-        cur, used_h = [], 0.0
-        for r in range(rows_n):
-            s = fmt_runs(grid[r])
-            est = max(4.4, 3.8 * (len(s) / 100.0 + 1.0))
-            if used_h + est > budget and cur:
-                row_pages.append(cur)
-                cur, used_h = [], 0.0
-            cur.append((r, s))
-            used_h += est
-        if cur:
-            row_pages.append(cur)
-
-    n_pages = len(pages) + len(row_pages)
+    n_pages = len(pages)
 
     # --- карточка-заголовок + легенда ---
     now = dt.datetime.now()
@@ -556,10 +505,6 @@ def render_document(grid, pal, args, stats, counts):
 <h1>{esc(title)} — схема пояса</h1>
 <div class="sub">глитч-надпись · страниц: {n_pages} · сегментов: {len(segments)}</div>
 <table class="params">{params}</table>
-<div class="hint">№ в кружке = <b>номер коробочки</b>: достаньте бисерину из коробочки
-№N и положите на кружок №N.<br>
-Печать: A4 · масштаб <b>100&nbsp;% («Реальный размер»)</b> · включить «Фоновую графику».
-После печати сверьте калибровочную линейку.</div>
 {ruler_svg(100.0)}
 </div>
 <div class="card">
@@ -596,16 +541,6 @@ def render_document(grid, pal, args, stats, counts):
         for i in page:
             body.append(seg_blocks[i])
         body.append("</div>")
-
-    for k, chunk in enumerate(row_pages, 1):
-        body.append('<div class="page"><h2>Раскладка по рядам'
-                    + (f' ({k}/{len(row_pages)})' if len(row_pages) > 1 else '')
-                    + '</h2><p class="sub">Формат: <b>№×количество подряд</b>. '
-                      'Ряд — слева направо, колонки 1 → ' + str(cols) + '.</p>'
-                      '<table class="rowlist">')
-        for r, s in chunk:
-            body.append(f'<tr><td class="n">Ряд {r + 1}</td><td>{esc(s)}</td></tr>')
-        body.append("</table></div>")
 
     doc = f"""<!DOCTYPE html>
 <html lang="ru">
@@ -654,15 +589,13 @@ def parse_args(argv=None):
                    help="зеркальная схема (для техник с обратным чтением)")
     p.add_argument("--no-numbers", dest="numbers", action="store_false",
                    help="печатать кружки без номеров")
-    p.add_argument("--no-rowlist", dest="rowlist", action="store_false",
-                   help="не добавлять раскладку по рядам")
     p.add_argument("--palette", type=Path, default=DEFAULT_PALETTE,
                    help="файл палитры JSON")
     p.add_argument("--title", default="",
                    help="заголовок схемы (по умолчанию — текст)")
     p.add_argument("--out", type=Path, default=None,
                    help="выходной HTML (по умолчанию patterns/out/<имя>.html)")
-    p.set_defaults(numbers=True, rowlist=True)
+    p.set_defaults(numbers=True)
     return p.parse_args(argv)
 
 
