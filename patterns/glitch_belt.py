@@ -5,9 +5,11 @@ glitch_belt.py — генератор печатных схем бисерных
 
 Что делает
 ----------
-* растрирует надпись (латиница/кириллица) встроенным шрифтом 5×7;
-* накладывает глитч-эффекты: RGB-сдвиг (маджента/циан), сдвиг срезов,
-  «выпадения» пикселей, блэкаут-блоки;
+* растрирует надпись многоцветным пиксельным шрифтом 7×6 из файла type.txt:
+  каждый пиксель буквы несёт свой цвет 0-5 (слева пурпурный/жёлтый, в середине
+  белый, справа голубой/синий) — «шлейф» зашит в сам шрифт;
+* искажения (выпадения пикселей, сдвиг срезов, блэкауты) — опционально,
+  флаги --dropout / --slices / --blackout, сила — --glitch;
 * строит сетку кружочков с фиксированным шагом в миллиметрах — под печатную
   оснастку с отверстиями: расстояния и диаметры всегда одинаковы;
 * номер внутри кружка — порядковый номер цвета из палитры (номер коробочки):
@@ -37,6 +39,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_PALETTE = HERE / "palette.json"
+DEFAULT_FONT = HERE / "type.txt"
+
+# Шрифт: глиф 7 колонок × 6 рядов, клетка — цифра цвета 0-5 (0 = фон).
+GLYPH_W, GLYPH_H = 7, 6
 
 # --- Геометрия страницы A4 (мм) ---
 PAGE_W, PAGE_H = 210.0, 297.0   # портрет
@@ -83,122 +89,75 @@ table { border-collapse: collapse; }
 }
 """
 
-# ------------------------------------------------------------- ШРИФТ 5×7 ---
-# Глиф: (ширина в колонках, 7 строк). Бит 0 — правая колонка.
-FONT = {
-    # Латиница
-    "A": (5, (0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11)),
-    "B": (5, (0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E)),
-    "C": (5, (0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E)),
-    "D": (5, (0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C)),
-    "E": (5, (0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F)),
-    "F": (5, (0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10)),
-    "G": (5, (0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F)),
-    "H": (5, (0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11)),
-    "I": (5, (0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E)),
-    "J": (5, (0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C)),
-    "K": (5, (0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11)),
-    "L": (5, (0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F)),
-    "M": (5, (0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11)),
-    "N": (5, (0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11)),
-    "O": (5, (0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E)),
-    "P": (5, (0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10)),
-    "Q": (5, (0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D)),
-    "R": (5, (0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11)),
-    "S": (5, (0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E)),
-    "T": (5, (0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04)),
-    "U": (5, (0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E)),
-    "V": (5, (0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04)),
-    "W": (5, (0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A)),
-    "X": (5, (0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11)),
-    "Y": (5, (0x11, 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04)),
-    "Z": (5, (0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F)),
-    # Цифры
-    "0": (5, (0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E)),
-    "1": (5, (0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E)),
-    "2": (5, (0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F)),
-    "3": (5, (0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E)),
-    "4": (5, (0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02)),
-    "5": (5, (0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E)),
-    "6": (5, (0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E)),
-    "7": (5, (0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08)),
-    "8": (5, (0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E)),
-    "9": (5, (0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C)),
-    # Кириллица
-    "А": (5, (0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11)),
-    "Б": (5, (0x1F, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x1E)),
-    "В": (5, (0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E)),
-    "Г": (5, (0x1F, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10)),
-    "Д": (5, (0x0E, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x11)),
-    "Е": (5, (0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F)),
-    "Ё": (5, (0x0A, 0x1F, 0x10, 0x1E, 0x10, 0x10, 0x1F)),
-    "Ж": (5, (0x15, 0x15, 0x15, 0x0E, 0x15, 0x15, 0x15)),
-    "З": (5, (0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E)),
-    "И": (5, (0x11, 0x11, 0x13, 0x15, 0x19, 0x11, 0x11)),
-    "Й": (5, (0x06, 0x11, 0x13, 0x15, 0x19, 0x11, 0x11)),
-    "К": (5, (0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11)),
-    "Л": (5, (0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11)),
-    "М": (5, (0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11)),
-    "Н": (5, (0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11)),
-    "О": (5, (0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E)),
-    "П": (5, (0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11)),
-    "Р": (5, (0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10)),
-    "С": (5, (0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E)),
-    "Т": (5, (0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04)),
-    "У": (5, (0x11, 0x11, 0x11, 0x0A, 0x04, 0x04, 0x04)),
-    "Ф": (5, (0x04, 0x0E, 0x15, 0x15, 0x15, 0x0E, 0x04)),
-    "Х": (5, (0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11)),
-    "Ц": (5, (0x15, 0x15, 0x15, 0x15, 0x15, 0x1F, 0x01)),
-    "Ч": (5, (0x11, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x01)),
-    "Ш": (5, (0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x1F)),
-    "Щ": (5, (0x15, 0x15, 0x15, 0x15, 0x15, 0x1F, 0x01)),
-    "Ъ": (5, (0x18, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x1E)),
-    "Ы": (5, (0x11, 0x11, 0x11, 0x1D, 0x13, 0x13, 0x1D)),
-    "Ь": (5, (0x10, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x1E)),
-    "Э": (5, (0x0E, 0x11, 0x01, 0x0F, 0x01, 0x11, 0x0E)),
-    "Ю": (6, (0b100110, 0b101001, 0b101001, 0b101001, 0b101001, 0b101001, 0b100110)),
-    "Я": (5, (0x0F, 0x11, 0x11, 0x0F, 0x05, 0x09, 0x11)),
-    # Знаки
-    " ": (3, (0, 0, 0, 0, 0, 0, 0)),
-    ".": (1, (0, 0, 0, 0, 0, 1, 1)),
-    ",": (2, (0, 0, 0, 0, 0b01, 0b01, 0b10)),
-    "!": (1, (1, 1, 1, 1, 1, 0, 1)),
-    "?": (5, (0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04)),
-    "-": (5, (0, 0, 0, 0x1F, 0, 0, 0)),
-    "+": (5, (0, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0)),
-    "/": (5, (0b00001, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b10000)),
-    "#": (5, (0b01010, 0b11111, 0b01010, 0b01010, 0b01010, 0b11111, 0b01010)),
-    "@": (5, (0x0E, 0x11, 0x15, 0x17, 0x14, 0x11, 0x0E)),
-    ":": (1, (0, 1, 1, 0, 1, 1, 0)),
-    "'": (1, (1, 1, 0, 0, 0, 0, 0)),
-    "*": (5, (0, 0b01010, 0b00100, 0b11111, 0b00100, 0b01010, 0)),
-    "_": (5, (0, 0, 0, 0, 0, 0, 0b11111)),
-    "(": (2, (0b01, 0b10, 0b10, 0b10, 0b10, 0b10, 0b01)),
-    ")": (2, (0b10, 0b01, 0b01, 0b01, 0b01, 0b01, 0b10)),
-}
-def glyph(ch: str):
-    """Глиф символа (или «?» для неизвестного)."""
-    return FONT.get(ch, FONT["?"])
+# --------------------------------------------------------- ШРИФТ 7×6 ---
+# Многоцветный пиксельный шрифт живёт в type.txt: глиф = строка-метка +
+# 6 строк по 7 цифр 0-5 (0 — фон/пусто, 1-5 — цвета = номера коробочек).
+# Шрифт можно править в файле — код перечитывает его при каждом запуске.
+
+
+def load_font(path: Path) -> dict:
+    """Шрифт из type.txt: {символ: 6 кортежей по 7 цифр 0-5}.
+
+    Блоки разделяются пустыми строками; блок из одной строки — комментарий.
+    Метка «_» обозначает пробел.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        sys.exit(f"Не читается файл шрифта {path}: {e}")
+    blocks, cur = [], []
+    for ln in raw.splitlines():
+        if ln.strip():
+            cur.append(ln)
+        elif cur:
+            blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+
+    glyphs: dict = {}
+    for block in blocks:
+        if len(block) == 1:          # строка-комментарий (шапка файла)
+            continue
+        if len(block) != 1 + GLYPH_H:
+            sys.exit(f"Шрифт {path}: блок «{block[0]}» — нужно "
+                     f"{1 + GLYPH_H} строк (метка + {GLYPH_H} рядов), "
+                     f"получено {len(block)}.")
+        label = " " if block[0] == "_" else block[0]
+        if len(label) != 1:
+            sys.exit(f"Шрифт {path}: «{block[0]}» — метка глифа должна "
+                     f"быть одним символом.")
+        rows = []
+        for i, row in enumerate(block[1:], 1):
+            if len(row) != GLYPH_W or set(row) - set("012345"):
+                sys.exit(f"Шрифт {path}: глиф «{block[0]}», строка {i}: "
+                         f"«{row}» — нужно {GLYPH_W} цифр из 0-5.")
+            rows.append(tuple(int(d) for d in row))
+        if label in glyphs:
+            sys.exit(f"Шрифт {path}: глиф «{block[0]}» определён дважды.")
+        glyphs[label] = tuple(rows)
+    if not glyphs:
+        sys.exit(f"Шрифт {path}: не найдено ни одного глифа.")
+    return glyphs
 
 
 def text_width(text: str, tracking: int) -> int:
     """Ширина строки в колонках при заданном трекинге (промежутке)."""
     if not text:
         return 0
-    return sum(glyph(ch)[0] for ch in text) + tracking * (len(text) - 1)
+    return GLYPH_W * len(text) + tracking * (len(text) - 1)
 
 
-def render_text(text: str, tracking: int):
-    """Растеризация строки шрифтом 5×7 → 7 списков из 0/1."""
-    rows: list[list[int]] = [[] for _ in range(7)]
+def render_text(text: str, font: dict, tracking: int):
+    """Растеризация строки шрифтом 7×6 → 6 списков из цифр 0-5."""
+    rows: list[list[int]] = [[] for _ in range(GLYPH_H)]
     last = len(text) - 1
     for i, ch in enumerate(text):
-        w, g = glyph(ch)
-        for r in range(7):
-            bits = g[r]
-            rows[r].extend((bits >> (w - 1 - c)) & 1 for c in range(w))
+        g = font[ch]
+        for r in range(GLYPH_H):
+            rows[r].extend(g[r])
         if i != last:
-            for r in range(7):
+            for r in range(GLYPH_H):
                 rows[r].extend([0] * tracking)
     return rows
 
@@ -226,17 +185,17 @@ def pick_tracking(text: str, cols: int, want: int, symmetrize: bool):
 
 # ------------------------------------------------------------ ПАЛИТРА ---
 
-REQUIRED_ROLES = ("bg", "main", "fringe_left", "fringe_right")
+N_COLORS = 6  # цифры шрифта 0-5
 
 
 def load_palette(path: Path) -> dict:
-    """Палитра из JSON: список цветов, id = позиция (№ коробочки)."""
+    """Палитра из JSON: 6 цветов, id = позиции в списке = цифра в type.txt."""
     data = json.loads(path.read_text(encoding="utf-8"))
     colors = data.get("colors") or []
-    if not colors:
-        sys.exit(f"Палитра {path}: пустой список colors.")
-    roles: dict[str, int] = {}
-    for i, c in enumerate(colors, start=1):
+    if len(colors) != N_COLORS:
+        sys.exit(f"Палитра {path}: нужно ровно {N_COLORS} цветов "
+                 f"(цифры шрифта 0-5), получено {len(colors)}.")
+    for i, c in enumerate(colors):
         c["id"] = i
         c.setdefault("name", f"цвет {i}")
         hexv = str(c.get("hex", "#000000")).lstrip("#")
@@ -245,76 +204,58 @@ def load_palette(path: Path) -> dict:
         if len(hexv) != 6:
             sys.exit(f"Палитра {path}: плохой HEX у цвета №{i}.")
         c["hex"] = "#" + hexv.lower()
-        roles[str(c.get("role", ""))] = i
-    missing = [r for r in REQUIRED_ROLES if r not in roles]
-    if missing:
-        sys.exit(f"Палитра {path}: нет ролей: {', '.join(missing)}.")
-    data["role"] = roles
     return data
 
 
 # --------------------------------------------------------- СЕТКА+ГЛИТЧ ---
 
-def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
-               rgb_shift=0, mirror=False, symmetrize=True):
-    """Сетка пояса rows_n×cols с центрированной глитч-надписью.
+def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal, font,
+               mirror=False, symmetrize=True,
+               dropout=False, slices=False, blackout=False):
+    """Сетка пояса rows_n×cols с центрированной многоцветной надписью.
 
-    Ячейка — целое число: № цвета из палитры (№ коробочки).
+    Ячейка — целое число: № цвета из палитры = цифра шрифта (№ коробочки).
+    Цветной «шлейф» зашит в сам шрифт; искажения — по флагам.
     """
-    if rows_n < 7:
-        sys.exit(f"Ширина пояса — {rows_n} рядов, а текст занимает 7. "
+    if rows_n < GLYPH_H:
+        sys.exit(f"Ширина пояса — {rows_n} рядов, а текст занимает {GLYPH_H}. "
                  f"Увеличьте --width-cm или уменьшите --pitch-mm.")
     tr, tr_adj = pick_tracking(text, cols, tracking, symmetrize)
-    tgrid = render_text(text, tr)
+    tgrid = render_text(text, font, tr)
     W = text_width(text, tr)
     if W > cols - 2:
         sys.exit(f"Надпись ({W} колонок при трекинге {tr}) не влезает "
                  f"в сетку ({cols} колонок). Увеличьте длину или сократите текст.")
 
-    free, free_v = cols - W, rows_n - 7
+    free, free_v = cols - W, rows_n - GLYPH_H
     left, right = free // 2, free - free // 2
     top, bottom = free_v // 2, free_v - free_v // 2
 
-    role = pal["role"]
-    c_bg, c_main = role["bg"], role["main"]
-    c_fl, c_fr = role["fringe_left"], role["fringe_right"]
+    c_bg = pal["colors"][0]["id"]
 
     grid = [[c_bg] * cols for _ in range(rows_n)]
     rng = random.Random(seed)
     g = max(0.0, min(1.0, glitch))
-    shift = rgb_shift if rgb_shift > 0 else max(1, int(1 + 1.5 * g + 0.5))
 
-    def put_text():
-        for r in range(7):
-            row = grid[top + r]
-            for c in range(W):
-                if tgrid[r][c]:
-                    row[left + c] = c_main
-
-    if g <= 0:
-        put_text()
-    else:
-        # 1) RGB-сдвиг: маджена слева, циан справа (только по фону)
-        for r in range(7):
-            row = grid[top + r]
-            for c in range(W):
-                if tgrid[r][c]:
-                    for cc, col_id in ((left + c - shift, c_fl),
-                                       (left + c + shift, c_fr)):
-                        if 0 <= cc < cols and row[cc] == c_bg:
-                            row[cc] = col_id
-        # 2) основной текст поверх
-        put_text()
-        # 3) «выпадения» пикселей (бисерина пропадает в фон)
+    # 1) надпись: цвет каждого пикселя берётся из шрифта
+    for r in range(GLYPH_H):
+        row = grid[top + r]
+        for c in range(W):
+            if tgrid[r][c]:
+                row[left + c] = tgrid[r][c]
+    # 2) «выпадения» пикселей в фон — только с флагом --dropout
+    if dropout:
         p_dim = 0.25 * g
-        for r in range(7):
+        for r in range(GLYPH_H):
             for c in range(W):
-                if tgrid[r][c] and grid[top + r][left + c] == c_main:
+                if tgrid[r][c] and grid[top + r][left + c] != c_bg:
                     if rng.random() < p_dim:
                         grid[top + r][left + c] = c_bg
-        # 4) сдвиг срезов: горизонтальные полосы едут влево/вправо
-        zone0, zone1 = max(0, top - 1), min(rows_n, top + 8)
-        opts = [d for d in (-3, -2, -1, 1, 2, 3)][: 2 + int(round(2 * g))] or [1]
+    # 3) сдвиг срезов — только с флагом --slices
+    if slices:
+        zone0, zone1 = max(0, top - 1), min(rows_n, top + GLYPH_H + 1)
+        opts = ([d for d in (-3, -2, -1, 1, 2, 3)]
+                [: 2 + int(round(2 * g))] or [1])
         for _ in range(max(1, round(g * rows_n * 0.5))):
             h = rng.choice((1, 1, 2))
             r_hi = max(zone0 + 1, zone1 - h + 1)
@@ -323,12 +264,14 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
             for r in range(r0, min(r0 + h, rows_n)):
                 row = grid[r]
                 grid[r] = row[d:] + row[:d]
-        # 5) блэкаут-блоки: куски надписи «пропадают»
+    # 4) блэкаут-блоки — только с флагом --blackout
+    if blackout:
+        zone0, zone1 = max(0, top - 1), min(rows_n, top + GLYPH_H + 1)
         for _ in range(int(round(g * 3))):
             bw, bh = rng.randint(4, 10), rng.randint(1, 2)
             r_hi = max(zone0 + 1, zone1 - bh + 1)
             r0 = rng.randrange(zone0, r_hi)
-            lo, hi = max(0, left - shift), min(cols - bw, left + W + shift)
+            lo, hi = max(0, left), min(cols - bw, left + W)
             if hi > lo:
                 c0 = rng.randrange(lo, hi + 1)
                 for r in range(r0, r0 + bh):
@@ -339,8 +282,7 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal,
         grid = [row[::-1] for row in grid]
 
     stats = dict(tracking=tr, tracking_adjusted=tr_adj, text_w=W,
-                 left=left, right=right, top=top, bottom=bottom,
-                 rgb_shift=shift)
+                 left=left, right=right, top=top, bottom=bottom)
     return grid, stats
 
 
@@ -401,7 +343,7 @@ def segment_svg(grid, c0, c1, pal, pitch, circle_d, show_numbers=True) -> str:
                    f'font-family="sans-serif">{r + 1}</text>')
         for j in range(n):
             num = row[c0 + j]
-            color = pal["colors"][num - 1]
+            color = pal["colors"][num]
             cx = GUTTER + j * pitch + pitch / 2
             out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{rad:.2f}" '
                        f'fill="{color["hex"]}"/>')
@@ -478,6 +420,14 @@ def render_document(grid, pal, args, stats, counts):
     title = args.title or args.text
     trk = (f"трекинг {stats['tracking']}"
            + (" (подогнан для равных полей)" if stats["tracking_adjusted"] else ""))
+    fx = ["многоцветный шрифт (type.txt)"]
+    if args.dropout:
+        fx.append("выпадения")
+    if args.slices:
+        fx.append("срезы")
+    if args.blackout:
+        fx.append("блэкауты")
+    fx.append(trk)
     p_rows = [
         ("Надпись", f"«{args.text}»" + (" · зеркально" if args.mirror else "")),
         ("Изделие", f"{args.length_cm:g} × {args.width_cm:g} см "
@@ -485,7 +435,7 @@ def render_document(grid, pal, args, stats, counts):
         ("Сетка", f"{cols} колонок × {rows_n} рядов · шаг {pitch:g} мм · "
                   f"кружок ⌀{circle_d:.1f} мм"),
         ("Всего бисерин", f"{total:,}".replace(",", " ")),
-        ("Эффекты", f"glitch {args.glitch:g} · RGB-сдвиг {stats['rgb_shift']} · {trk}"),
+        ("Эффекты", " · ".join(fx)),
         ("Поля текста", f"слева/справа {stats['left']}/{stats['right']} · "
                         f"сверху/снизу {stats['top']}/{stats['bottom']} колонок"),
         ("Воспроизводимость", f"seed {args.seed}"),
@@ -576,15 +526,22 @@ def parse_args(argv=None):
     p.add_argument("--circle-gap", type=float, default=0.4,
                    help="зазор между кружками, мм (диаметр = шаг − зазор)")
     p.add_argument("--glitch", type=float, default=0.5,
-                   help="интенсивность глитча 0…1 (0 = чистый текст)")
+                   help="сила искажений 0…1 для --dropout/--slices/"
+                        "--blackout (на чистый текст не влияет)")
+    p.add_argument("--dropout", action="store_true",
+                   help="«выпадения» пикселей текста в фон (по умолчанию выкл.)")
+    p.add_argument("--slices", action="store_true",
+                   help="сдвиг горизонтальных срезов (по умолчанию выкл.)")
+    p.add_argument("--blackout", action="store_true",
+                   help="блэкаут-блоки: куски надписи пропадают (по умолчанию выкл.)")
     p.add_argument("--seed", type=int, default=42,
                    help="зерно генератора — схема воспроизводима")
     p.add_argument("--tracking", type=int, default=1,
                    help="промежуток между буквами, колонок")
+    p.add_argument("--font", type=Path, default=DEFAULT_FONT,
+                   help="файл шрифта (глифы 7×6, цифры цветов)")
     p.add_argument("--no-symmetrize", action="store_true",
                    help="не подгонять трекинг ради равных полей")
-    p.add_argument("--rgb-shift", type=int, default=0,
-                   help="сдвиг RGB-каналов, колонок (0 = авто)")
     p.add_argument("--mirror", action="store_true",
                    help="зеркальная схема (для техник с обратным чтением)")
     p.add_argument("--no-numbers", dest="numbers", action="store_false",
@@ -604,9 +561,12 @@ def main(argv=None) -> int:
     text = " ".join(args.text.upper().split())
     if not text:
         sys.exit("Пустая надпись.")
-    unknown = sorted({ch for ch in text if ch not in FONT})
+    pal = load_palette(args.palette)
+    font = load_font(args.font)
+    unknown = sorted({ch for ch in text if ch not in font})
     if unknown:
-        sys.exit("В шрифте 5×7 нет символов: " + ", ".join(unknown))
+        sys.exit("В шрифте нет символов: " + ", ".join(unknown)
+                 + ". Добавьте глифы в type.txt.")
     if not 0.0 <= args.glitch <= 1.0:
         sys.exit("--glitch должен быть от 0 до 1.")
     if args.pitch_mm <= 0.2:
@@ -616,14 +576,14 @@ def main(argv=None) -> int:
         sys.exit(f"Диаметр кружка {circle_d:.2f} мм слишком мал — "
                  f"уменьшите --circle-gap.")
 
-    pal = load_palette(args.palette)
     cols = max(1, round(args.length_cm * 10.0 / args.pitch_mm))
     rows_n = max(1, round(args.width_cm * 10.0 / args.pitch_mm))
 
     grid, stats = build_grid(
         text, cols, rows_n, tracking=args.tracking, glitch=args.glitch,
-        seed=args.seed, pal=pal, rgb_shift=args.rgb_shift,
-        mirror=args.mirror, symmetrize=not args.no_symmetrize)
+        seed=args.seed, pal=pal, font=font,
+        mirror=args.mirror, symmetrize=not args.no_symmetrize,
+        dropout=args.dropout, slices=args.slices, blackout=args.blackout)
     counts = Counter(v for row in grid for v in row)
     assert sum(counts.values()) == rows_n * cols, "счётчик бисерин не сходится"
 
