@@ -1,0 +1,12 @@
+{
+  "name": "Glitch Classic",
+  "comment": "Порядок цветов в списке = порядковый номер (№ коробочки). Роли: bg — фон, main — текст, fringe_left/fringe_right — RGB-сдвиг, noise_bright/noise_dim — шум. hex и name можно править; количество и порядок ролей менять нельзя.",
+  "colors": [
+    { "name": "Чёрный (фон)",            "hex": "#141414", "role": "bg" },
+    { "name": "Белый (текст)",           "hex": "#f4f4f4", "role": "main" },
+    { "name": "Маджента (сдвиг влево)",  "hex": "#d9337f", "role": "fringe_left" },
+    { "name": "Циан (сдвиг вправо)",     "hex": "#22b8d4", "role": "fringe_right" },
+    { "name": "Серый яркий (шум)",       "hex": "#9a9a9a", "role": "noise_bright" },
+    { "name": "Серый тёмный (шум)",      "hex": "#4e4e4e", "role": "noise_dim" }
+  ]
+}
