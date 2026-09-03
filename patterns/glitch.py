@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-glitch_belt.py — генератор печатных схем бисерных поясов с глитч-надписями.
+glitch.py — генератор печатных схем бисерных поясов с глитч-надписями.
 
 Что делает
 ----------
@@ -21,7 +21,7 @@ glitch_belt.py — генератор печатных схем бисерных
 
 Пример
 ------
-    python3 glitch_belt.py -t belt_90 --text "ГЛИТЧ" \\
+    python3 glitch.py -t belt_90 --text "ГЛИТЧ" \\
         --seed 42 --title "Пояс №1" --out out/poyas1.html
 """
 
@@ -563,11 +563,11 @@ def print_help_card() -> None:
     """Короткая шпаргалка: пример запуска, пресеты, частые флаги."""
     L = ["Генератор печатных схем бисерных надписей (HTML · A4 · точные мм)",
          "",
-         "ЗАПУСК — примеры:",
-         '  python3 patterns/glitch_belt.py -t bracelet_19 --text "БОГДАННА"',
-         '  python3 patterns/glitch_belt.py -t belt_90 --text "ГЛИТЧ"'
-         " --out patterns/out/poyas1.html",
-         '  python3 patterns/glitch_belt.py --cols 100 --rows 10 --text "ЭХО"',
+         "ЗАПУСК — примеры (из папки со скриптом):",
+         '  python3 glitch.py -t bracelet_19 --text "БОГДАННА"',
+         '  python3 glitch.py -t belt_90 --text "ГЛИТЧ"'
+         " --out out/poyas1.html",
+         '  python3 glitch.py --cols 100 --rows 10 --text "ЭХО"',
          ""]
     try:
         data = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
@@ -592,16 +592,16 @@ def print_help_card() -> None:
     L += ["ЧАСТО ИСПОЛЬЗУЕТСЯ:",
           '  --text "ТЕКСТ"      надпись (строчные → ЗАГЛАВНЫЕ)',
           "  --cols N, --rows N  размер полотна в клетках (переопределяют пресет)",
-          "  --out ФАЙЛ          выходной HTML (по умолчанию patterns/out/<надпись>.html)",
+          "  --out ФАЙЛ          выходной HTML (по умолчанию out/<надпись>.html)",
           "  --no-numbers        кружки без цифр-номеров коробочек",
           "  --mirror            зеркальная схема",
           "  --seed N            вариант искажений (--dropout/--slices/--blackout)",
           "",
-          "ФАЙЛЫ ПРОЕКТА:",
-          "  patterns/config.json — пресеты: размеры, кружочки, цвета бисера",
-          "  patterns/type.txt    — шрифт: глиф = метка + 6 строк по 7 цифр 0-5",
+          "ФАЙЛЫ (лежат рядом со скриптом):",
+          "  config.json — пресеты: размеры, кружочки, цвета бисера",
+          "  type.txt    — шрифт: глиф = метка + 6 строк по 7 цифр 0-5",
           "",
-          "Полный список параметров: python3 patterns/glitch_belt.py --help"]
+          "Полный список параметров: python3 glitch.py --help"]
     print("\n".join(L))
 
 
@@ -611,7 +611,7 @@ def parse_args(argv=None):
         print_help_card()
         raise SystemExit(0)
     p = argparse.ArgumentParser(
-        prog="glitch_belt.py",
+        prog="glitch.py",
         description="Генератор печатных схем бисерных поясов с глитч-надписями "
                     "(HTML, A4, точные миллиметры).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -655,7 +655,7 @@ def parse_args(argv=None):
     p.add_argument("--title", default="",
                    help="заголовок схемы (по умолчанию — текст)")
     p.add_argument("--out", type=Path, default=None,
-                   help="выходной HTML (по умолчанию patterns/out/<имя>.html)")
+                   help="выходной HTML (по умолчанию out/<имя>.html)")
     p.set_defaults(numbers=True)
     return p.parse_args(args)
 
