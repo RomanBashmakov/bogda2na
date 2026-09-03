@@ -21,8 +21,8 @@ glitch_belt.py — генератор печатных схем бисерных
 
 Пример
 ------
-    python3 glitch_belt.py --text "ГЛИТЧ" --length-cm 90 --width-cm 4 \\
-        --pitch-mm 2.5 --seed 42 --title "Пояс №1" --out out/poyas1.html
+    python3 glitch_belt.py -t belt_90 --text "ГЛИТЧ" \\
+        --seed 42 --title "Пояс №1" --out out/poyas1.html
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_PALETTE = HERE / "palette.json"
+DEFAULT_CONFIG = HERE / "config.json"
 DEFAULT_FONT = HERE / "type.txt"
 
 # Шрифт: глиф 7 колонок × 6 рядов, клетка — цифра цвета 0-5 (0 = фон).
@@ -46,11 +46,15 @@ GLYPH_W, GLYPH_H = 7, 6
 
 # --- Геометрия страницы A4 (мм) ---
 PAGE_W, PAGE_H = 210.0, 297.0   # портрет
-PAGE_MARGIN = 8.0               # поля печати
+PAGE_MARGIN = 8.0               # поля печати (CSS @page)
+PRINT_SAFE_W = 182.0            # консервативная ширина печати: сегменты
+                                # влезают даже при полях браузера/принтера
+                                # «по умолчанию» (~12.7 мм на сторону)
 GUTTER = 7.0                    # поле слева под номера рядов
 RULER_H = 3.6                   # линейка колонок над сеткой
-CUT_H = 4.6                     # место под линию отреза после сегмента
-TITLE_H = 4.2                   # заголовок сегмента
+CUT_H = 8.8                     # линия отреза: текст + отступы (реальная высота)
+TITLE_H = 4.3                   # заголовок сегмента
+SEG_GAP = 1.0                   # отбивка между сегментами (.seg margin)
 
 CSS = """
 @page { size: A4 portrait; margin: 8mm; }
@@ -183,28 +187,70 @@ def pick_tracking(text: str, cols: int, want: int, symmetrize: bool):
     return want, False
 
 
-# ------------------------------------------------------------ ПАЛИТРА ---
+# --------------------------------------------------------------- КОНФИГ ---
 
 N_COLORS = 6  # цифры шрифта 0-5
 
+# Запасные цвета — когда пресет не задаёт свои. Порядок = цифры шрифта.
+FALLBACK_COLORS = (
+    ("Чёрный (фон)", "#141414"),
+    ("Пурпурный", "#b23ad6"),
+    ("Жёлтый", "#f5c518"),
+    ("Белый", "#f4f4f4"),
+    ("Голубой", "#3fb8e8"),
+    ("Синий", "#2e4fd8"),
+)
 
-def load_palette(path: Path) -> dict:
-    """Палитра из JSON: 6 цветов, id = позиции в списке = цифра в type.txt."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    colors = data.get("colors") or []
-    if len(colors) != N_COLORS:
-        sys.exit(f"Палитра {path}: нужно ровно {N_COLORS} цветов "
-                 f"(цифры шрифта 0-5), получено {len(colors)}.")
-    for i, c in enumerate(colors):
+
+def _norm_hex(v, what: str) -> str:
+    hexv = str(v).lstrip("#")
+    if len(hexv) == 3:
+        hexv = "".join(x * 2 for x in hexv)
+    if len(hexv) != 6 or any(c not in "0123456789abcdefABCDEF" for c in hexv):
+        sys.exit(f"Конфиг: плохой HEX {v!r} у цвета {what}.")
+    return "#" + hexv.lower()
+
+
+def load_config(path: Path, preset):
+    """Пресет из конфига. Без -t возвращает {} — работают флаги и запасные
+    значения. Ключи конфига, начинающиеся с «_», — комментарии.
+    """
+    if preset is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        sys.exit(f"Не читается файл конфига {path}: {e}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"Конфиг {path}: повреждённый JSON ({e}).")
+    presets = {k: v for k, v in data.items() if not k.startswith("_")}
+    if preset not in presets:
+        names = ", ".join(sorted(presets)) or "пресетов нет"
+        sys.exit(f"В конфиге {path} нет пресета «{preset}». Доступны: {names}.")
+    cfg = presets[preset]
+    if not isinstance(cfg, dict):
+        sys.exit(f"Конфиг {path}: пресет «{preset}» должен быть объектом "
+                 f"{{...}}, а не списком или числом.")
+    return cfg
+
+
+def make_palette(cfg: dict, preset) -> dict:
+    """Палитра из пресета (поле colors) либо запасная: 6 цветов, id = 0-5."""
+    raw = cfg.get("colors")
+    if raw is None:
+        items = [{"name": n, "hex": h} for n, h in FALLBACK_COLORS]
+        name = "запасная RGB Split"
+    else:
+        if not isinstance(raw, list) or len(raw) != N_COLORS:
+            sys.exit(f"Конфиг: поле colors пресета должно быть списком из "
+                     f"{N_COLORS} цветов (цифры шрифта 0-5).")
+        items = [{"name": str(c.get("name", f"цвет {i}")),
+                  "hex": _norm_hex(c.get("hex", "#000000"), f"№{i}")}
+                 for i, c in enumerate(raw)]
+        name = str(preset)
+    for i, c in enumerate(items):
         c["id"] = i
-        c.setdefault("name", f"цвет {i}")
-        hexv = str(c.get("hex", "#000000")).lstrip("#")
-        if len(hexv) == 3:
-            hexv = "".join(x * 2 for x in hexv)
-        if len(hexv) != 6:
-            sys.exit(f"Палитра {path}: плохой HEX у цвета №{i}.")
-        c["hex"] = "#" + hexv.lower()
-    return data
+    return {"name": name, "colors": items}
 
 
 # --------------------------------------------------------- СЕТКА+ГЛИТЧ ---
@@ -387,16 +433,18 @@ def render_document(grid, pal, args, stats, counts):
     """Сборка самодостаточного HTML. Возвращает (html, meta)."""
     cols, rows_n = len(grid[0]), len(grid)
     pitch = args.pitch_mm
-    circle_d = pitch - args.circle_gap
+    circle_d = args.circle_d_mm
     used = [c for c in pal["colors"] if counts.get(c["id"], 0)]
     total = rows_n * cols
 
     # --- сегменты и страницы ---
-    seg_cols = int((PAGE_W - 2 * PAGE_MARGIN - GUTTER - 1.0) // pitch)
+    # ширину считаем от консервативной печатной ширины: сетка не выйдет за
+    # лист, даже если диалог печати применит поля больше CSS-ных 8 мм
+    seg_cols = int((PRINT_SAFE_W - GUTTER - 1.0) // pitch)
     seg_cols = max(1, min(seg_cols, cols))
     segments = [(c0, min(c0 + seg_cols, cols)) for c0 in range(0, cols, seg_cols)]
     seg_h = RULER_H + rows_n * pitch + 0.8
-    block_h = TITLE_H + seg_h + CUT_H
+    block_h = TITLE_H + seg_h + CUT_H + SEG_GAP
     usable_h = PAGE_H - 2 * PAGE_MARGIN
 
     warnings = []
@@ -404,7 +452,7 @@ def render_document(grid, pal, args, stats, counts):
         warnings.append(f"Сегмент ({block_h:.0f} мм) выше полезной высоты листа "
                         f"({usable_h:.0f} мм) — уменьшите ширину пояса или шаг.")
 
-    header_h = min(78.0 + 6.4 * len(used) + 10.0, usable_h * 0.85)
+    header_h = min(100.0 + 6.4 * len(used) + 10.0, usable_h * 0.85)
     pages, cap = [[]], usable_h - header_h
     for i in range(len(segments)):
         if cap < block_h and pages[-1]:
@@ -517,14 +565,21 @@ def parse_args(argv=None):
         description="Генератор печатных схем бисерных поясов с глитч-надписями "
                     "(HTML, A4, точные миллиметры).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("-c", "--config", type=Path, default=DEFAULT_CONFIG,
+                   help="файл конфига с пресетами (JSON)")
+    p.add_argument("-t", "--preset", default=None,
+                   help="имя пресета из конфига, напр. bracelet_19")
     p.add_argument("--text", required=True,
                    help="надпись (латиница/кириллица; нижний регистр → верхний)")
-    p.add_argument("--length-cm", type=float, default=90.0, help="длина изделия, см")
-    p.add_argument("--width-cm", type=float, default=4.0, help="ширина изделия, см")
-    p.add_argument("--pitch-mm", type=float, default=2.5,
-                   help="шаг сетки (межцентровое расстояние), мм")
-    p.add_argument("--circle-gap", type=float, default=0.4,
-                   help="зазор между кружками, мм (диаметр = шаг − зазор)")
+    p.add_argument("--length-cm", type=float, default=None,
+                   help="длина изделия, см (по умолчанию: пресет -t или 90)")
+    p.add_argument("--width-cm", type=float, default=None,
+                   help="ширина изделия, см (по умолчанию: пресет -t или 4)")
+    p.add_argument("--pitch-mm", type=float, default=None,
+                   help="шаг сетки — расстояние между центрами кружочков, мм "
+                        "(по умолчанию: пресет -t или 2.5)")
+    p.add_argument("--circle-d-mm", type=float, default=None,
+                   help="диаметр кружочка, мм (по умолчанию: пресет -t или шаг − 0.4)")
     p.add_argument("--glitch", type=float, default=0.5,
                    help="сила искажений 0…1 для --dropout/--slices/"
                         "--blackout (на чистый текст не влияет)")
@@ -538,16 +593,14 @@ def parse_args(argv=None):
                    help="зерно генератора — схема воспроизводима")
     p.add_argument("--tracking", type=int, default=1,
                    help="промежуток между буквами, колонок")
-    p.add_argument("--font", type=Path, default=DEFAULT_FONT,
-                   help="файл шрифта (глифы 7×6, цифры цветов)")
+    p.add_argument("--font", type=Path, default=None,
+                   help="файл шрифта (по умолчанию: пресет -t или type.txt)")
     p.add_argument("--no-symmetrize", action="store_true",
                    help="не подгонять трекинг ради равных полей")
     p.add_argument("--mirror", action="store_true",
                    help="зеркальная схема (для техник с обратным чтением)")
     p.add_argument("--no-numbers", dest="numbers", action="store_false",
                    help="печатать кружки без номеров")
-    p.add_argument("--palette", type=Path, default=DEFAULT_PALETTE,
-                   help="файл палитры JSON")
     p.add_argument("--title", default="",
                    help="заголовок схемы (по умолчанию — текст)")
     p.add_argument("--out", type=Path, default=None,
@@ -561,20 +614,50 @@ def main(argv=None) -> int:
     text = " ".join(args.text.upper().split())
     if not text:
         sys.exit("Пустая надпись.")
-    pal = load_palette(args.palette)
-    font = load_font(args.font)
+    cfg = load_config(args.config, args.preset)
+
+    def resolve(cli, key, fallback):
+        """Приоритет: флаг командной строки → поле пресета → запасное."""
+        if cli is not None:
+            return cli
+        v = cfg.get(key)
+        return fallback if v is None else v
+
+    length_cm = float(resolve(args.length_cm, "length_cm", 90.0))
+    width_cm = float(resolve(args.width_cm, "width_cm", 4.0))
+    pitch = float(resolve(args.pitch_mm, "pitch_mm", 2.5))
+    circle_d = resolve(args.circle_d_mm, "circle_d_mm", None)
+    if circle_d is None:
+        circle_d = pitch - 0.4          # запасное правило, как раньше
+    circle_d = float(circle_d)
+
+    if not 0.0 <= args.glitch <= 1.0:
+        sys.exit("--glitch должен быть от 0 до 1.")
+    if pitch <= 0.2:
+        sys.exit(f"Шаг сетки {pitch:g} мм слишком мал (минимум 0.2 мм).")
+    if circle_d < 0.8:
+        sys.exit(f"Диаметр кружка {circle_d:.2f} мм слишком мал "
+                 f"(минимум 0.8 мм).")
+    if circle_d >= pitch:
+        sys.exit(f"Диаметр кружка {circle_d:.2f} мм не меньше шага "
+                 f"{pitch:g} мм — кружки слипнутся, уменьшите circle_d_mm.")
+
+    pal = make_palette(cfg, args.preset)
+    font_path = args.font
+    if font_path is None:
+        font_path = Path(cfg["font"]) if cfg.get("font") else DEFAULT_FONT
+    if not font_path.is_absolute():
+        cand = args.config.parent / font_path
+        font_path = cand if cand.exists() else HERE / font_path
+    font = load_font(font_path)
     unknown = sorted({ch for ch in text if ch not in font})
     if unknown:
         sys.exit("В шрифте нет символов: " + ", ".join(unknown)
-                 + ". Добавьте глифы в type.txt.")
-    if not 0.0 <= args.glitch <= 1.0:
-        sys.exit("--glitch должен быть от 0 до 1.")
-    if args.pitch_mm <= 0.2:
-        sys.exit("--pitch-mm слишком мал (минимум 0.2 мм).")
-    circle_d = args.pitch_mm - args.circle_gap
-    if circle_d < 0.8:
-        sys.exit(f"Диаметр кружка {circle_d:.2f} мм слишком мал — "
-                 f"уменьшите --circle-gap.")
+                 + ". Добавьте глифы в файл шрифта.")
+
+    # дальше по конвейеру — одни и те же поля args
+    args.length_cm, args.width_cm = length_cm, width_cm
+    args.pitch_mm, args.circle_d_mm = pitch, circle_d
 
     cols = max(1, round(args.length_cm * 10.0 / args.pitch_mm))
     rows_n = max(1, round(args.width_cm * 10.0 / args.pitch_mm))
@@ -597,6 +680,8 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc, encoding="utf-8")
 
+    if args.preset:
+        print(f"Пресет: {args.preset} · {args.config}")
     print(f"Надпись: {text}")
     print(f"Сетка: {cols} × {rows_n} = {cols * args.pitch_mm:.1f} × "
           f"{rows_n * args.pitch_mm:.1f} мм · шаг {args.pitch_mm:g} мм · "

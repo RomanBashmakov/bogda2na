@@ -1,0 +1,52 @@
+{
+  "_читать": "Запуск: python3 patterns/glitch_belt.py -c config.json -t имя_пресета --text «НАДПИСЬ». Ключи с «_» — комментарии. Поля пресета: length_cm и width_cm — размер полотна; pitch_mm — расстояние между центрами кружочков; circle_d_mm — диаметр кружочка; font — файл шрифта (путь от этой папки, правится руками); colors — 6 цветов = цифры шрифта 0-5 = номера коробочек. Флаги командной строки переопределяют поля пресета.",
+
+  "belt_90": {
+    "length_cm": 90,
+    "width_cm": 4,
+    "pitch_mm": 2.5,
+    "circle_d_mm": 2.1,
+    "font": "type.txt",
+    "colors": [
+      { "name": "Чёрный (фон)", "hex": "#141414" },
+      { "name": "Пурпурный",    "hex": "#b23ad6" },
+      { "name": "Жёлтый",       "hex": "#f5c518" },
+      { "name": "Белый",        "hex": "#f4f4f4" },
+      { "name": "Голубой",      "hex": "#3fb8e8" },
+      { "name": "Синий",        "hex": "#2e4fd8" }
+    ]
+  },
+
+  "bracelet_19": {
+    "length_cm": 19,
+    "width_cm": 2,
+    "pitch_mm": 2.5,
+    "circle_d_mm": 2.1,
+    "font": "type.txt",
+    "colors": [
+      { "name": "Чёрный (фон)", "hex": "#141414" },
+      { "name": "Пурпурный",    "hex": "#b23ad6" },
+      { "name": "Жёлтый",       "hex": "#f5c518" },
+      { "name": "Белый",        "hex": "#f4f4f4" },
+      { "name": "Голубой",      "hex": "#3fb8e8" },
+      { "name": "Синий",        "hex": "#2e4fd8" }
+    ]
+  },
+
+  "bracelet_15": {
+    "length_cm": 15,
+    "width_cm": 2,
+    "pitch_mm": 2.5,
+    "circle_d_mm": 2.1,
+    "font": "type.txt",
+    "colors": [
+      { "name": "Чёрный (фон)", "hex": "#141414" },
+      { "name": "Пурпурный",    "hex": "#b23ad6" },
+      { "name": "Жёлтый",       "hex": "#f5c518" },
+      { "name": "Белый",        "hex": "#f4f4f4" },
+      { "name": "Голубой",      "hex": "#3fb8e8" },
+      { "name": "Синий",        "hex": "#2e4fd8" }
+    ]
+  }
+}
+
