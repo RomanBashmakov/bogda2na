@@ -265,13 +265,14 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal, font,
     """
     if rows_n < GLYPH_H:
         sys.exit(f"Ширина пояса — {rows_n} рядов, а текст занимает {GLYPH_H}. "
-                 f"Увеличьте --width-cm или уменьшите --pitch-mm.")
+                 f"Увеличьте --rows (или поле rows в пресете).")
     tr, tr_adj = pick_tracking(text, cols, tracking, symmetrize)
     tgrid = render_text(text, font, tr)
     W = text_width(text, tr)
     if W > cols - 2:
         sys.exit(f"Надпись ({W} колонок при трекинге {tr}) не влезает "
-                 f"в сетку ({cols} колонок). Увеличьте длину или сократите текст.")
+                 f"в сетку ({cols} колонок). Увеличьте --cols или "
+                 f"сократите текст.")
 
     free, free_v = cols - W, rows_n - GLYPH_H
     left, right = free // 2, free - free // 2
@@ -478,10 +479,9 @@ def render_document(grid, pal, args, stats, counts):
     fx.append(trk)
     p_rows = [
         ("Надпись", f"«{args.text}»" + (" · зеркально" if args.mirror else "")),
-        ("Изделие", f"{args.length_cm:g} × {args.width_cm:g} см "
-                    f"(сетка {cols * pitch:.1f} × {rows_n * pitch:.1f} мм)"),
-        ("Сетка", f"{cols} колонок × {rows_n} рядов · шаг {pitch:g} мм · "
-                  f"кружок ⌀{circle_d:.1f} мм"),
+        ("Изделие", f"{cols} колонок × {rows_n} рядов = "
+                    f"{cols * pitch:.1f} × {rows_n * pitch:.1f} мм"),
+        ("Кружки", f"шаг {pitch:g} мм · диаметр {circle_d:.1f} мм"),
         ("Всего бисерин", f"{total:,}".replace(",", " ")),
         ("Эффекты", " · ".join(fx)),
         ("Поля текста", f"слева/справа {stats['left']}/{stats['right']} · "
@@ -571,10 +571,11 @@ def parse_args(argv=None):
                    help="имя пресета из конфига, напр. bracelet_19")
     p.add_argument("--text", required=True,
                    help="надпись (латиница/кириллица; нижний регистр → верхний)")
-    p.add_argument("--length-cm", type=float, default=None,
-                   help="длина изделия, см (по умолчанию: пресет -t или 90)")
-    p.add_argument("--width-cm", type=float, default=None,
-                   help="ширина изделия, см (по умолчанию: пресет -t или 4)")
+    p.add_argument("--cols", type=int, default=None,
+                   help="длина изделия в клетках-колонках "
+                        "(по умолчанию: пресет -t или 360)")
+    p.add_argument("--rows", type=int, default=None,
+                   help="ширина изделия в рядах (по умолчанию: пресет -t или 16)")
     p.add_argument("--pitch-mm", type=float, default=None,
                    help="шаг сетки — расстояние между центрами кружочков, мм "
                         "(по умолчанию: пресет -t или 2.5)")
@@ -623,8 +624,16 @@ def main(argv=None) -> int:
         v = cfg.get(key)
         return fallback if v is None else v
 
-    length_cm = float(resolve(args.length_cm, "length_cm", 90.0))
-    width_cm = float(resolve(args.width_cm, "width_cm", 4.0))
+    def as_cells(v, what):
+        """Размер полотна — целое число клеток ≥ 1."""
+        if (isinstance(v, bool) or not isinstance(v, (int, float))
+                or float(v) != int(v) or int(v) < 1):
+            sys.exit(f"Размер полотна ({what}) должен быть целым числом "
+                     f"клеток от 1, получено: {v!r}.")
+        return int(v)
+
+    cols = as_cells(resolve(args.cols, "cols", 360), "колонки")
+    rows_n = as_cells(resolve(args.rows, "rows", 16), "ряды")
     pitch = float(resolve(args.pitch_mm, "pitch_mm", 2.5))
     circle_d = resolve(args.circle_d_mm, "circle_d_mm", None)
     if circle_d is None:
@@ -656,11 +665,7 @@ def main(argv=None) -> int:
                  + ". Добавьте глифы в файл шрифта.")
 
     # дальше по конвейеру — одни и те же поля args
-    args.length_cm, args.width_cm = length_cm, width_cm
     args.pitch_mm, args.circle_d_mm = pitch, circle_d
-
-    cols = max(1, round(args.length_cm * 10.0 / args.pitch_mm))
-    rows_n = max(1, round(args.width_cm * 10.0 / args.pitch_mm))
 
     grid, stats = build_grid(
         text, cols, rows_n, tracking=args.tracking, glitch=args.glitch,
