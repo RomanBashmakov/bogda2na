@@ -13,6 +13,8 @@
 Запуск (из любой папки):
     python3 img_generator/img_belt.py картинка.png -n 8
 Выход: img_generator/out/<имя_картинки>.html
+Шпаргалка с примерами: python3 img_generator/img_belt.py help
+(она же показывается при запуске без аргументов).
 
 Зависимости: Pillow (pip install Pillow).
 """
@@ -264,7 +266,44 @@ def render_document(grid, pal, counts, args, img_size):
     return doc, meta
 
 
+def print_help_card() -> None:
+    """Короткая шпаргалка: запуск, как работает, частые флаги, файлы."""
+    L = ["Генератор печатных бисерных схем из картинки (HTML · A4 · точные мм)",
+         "",
+         "ЗАПУСК — примеры (из любой папки проекта):",
+         "  python3 img_generator/img_belt.py картинка.png -n 8",
+         "  python3 img_generator/img_belt.py koi.png --cols 100 --dither",
+         '  python3 img_generator/img_belt.py koi.png -n 12 --title "Кои"'
+         " --out img_generator/out/koi.html",
+         "",
+         "КАК ЭТО РАБОТАЕТ:",
+         "  картинка → постеризация в N цветов → клетки-бисерины → HTML-схема",
+         "  (кружок = бисерина, цифра = № коробочки, как в glitch.py);",
+         "  ряды сетки считаются из пропорций картинки при длине --cols;",
+         "  большое полотно режется на блоки под лист A4, склейка — по",
+         "  глобальным номерам рядов и колонок.",
+         "",
+         "ЧАСТО ИСПОЛЬЗУЕТСЯ:",
+         "  -n N             сколько цветов оставить (2-30, по умолчанию 7)",
+         "  --cols N         длина изделия в клетках (по умолчанию 200)",
+         "  --dither         дизеринг Флойда—Стейнберга (по умолчанию выкл.)",
+         "  --no-numbers     кружки без цифр-номеров коробочек",
+         "  --mirror         зеркальная схема",
+         "  --out ФАЙЛ       выходной HTML (по умолчанию out/<имя картинки>.html)",
+         "",
+         "ФАЙЛЫ:",
+         "  схема ложится в img_generator/out/<имя картинки>.html;",
+         "  общие части рендера импортируются из ../patterns/glitch.py.",
+         "",
+         "Полный список параметров: python3 img_generator/img_belt.py --help"]
+    print("\n".join(L))
+
+
 def parse_args(argv=None):
+    args = sys.argv[1:] if argv is None else list(argv)
+    if not args or args[0] == "help":
+        print_help_card()
+        raise SystemExit(0)
     p = argparse.ArgumentParser(
         prog="img_belt.py",
         description="Генератор печатных бисерных схем из картинки "
