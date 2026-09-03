@@ -559,7 +559,57 @@ def render_document(grid, pal, args, stats, counts):
 
 # ----------------------------------------------------------------- CLI ---
 
+def print_help_card() -> None:
+    """Короткая шпаргалка: пример запуска, пресеты, частые флаги."""
+    L = ["Генератор печатных схем бисерных надписей (HTML · A4 · точные мм)",
+         "",
+         "ЗАПУСК — примеры:",
+         '  python3 patterns/glitch_belt.py -t bracelet_19 --text "БОГДАННА"',
+         '  python3 patterns/glitch_belt.py -t belt_90 --text "ГЛИТЧ"'
+         " --out patterns/out/poyas1.html",
+         '  python3 patterns/glitch_belt.py --cols 100 --rows 10 --text "ЭХО"',
+         ""]
+    try:
+        data = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
+        presets = sorted(k for k, v in data.items()
+                         if not k.startswith("_") and isinstance(v, dict))
+    except (OSError, json.JSONDecodeError):
+        data, presets = {}, []
+    if presets:
+        L.append(f"ПРЕСЕТЫ ({DEFAULT_CONFIG.name}):")
+        for name in presets:
+            v = data[name]
+            parts = []
+            if "cols" in v or "rows" in v:
+                parts.append(f"{v.get('cols', '?')}×{v.get('rows', '?')} клеток")
+            if v.get("pitch_mm") is not None:
+                parts.append(f"шаг {v['pitch_mm']:g} мм")
+            if v.get("circle_d_mm") is not None:
+                parts.append(f"кружок {v['circle_d_mm']:g} мм")
+            desc = " · ".join(parts) if parts else "размеры в конфиге"
+            L.append(f"  -t {name}{' ' * max(1, 14 - len(name))}{desc}")
+        L.append("")
+    L += ["ЧАСТО ИСПОЛЬЗУЕТСЯ:",
+          '  --text "ТЕКСТ"      надпись (строчные → ЗАГЛАВНЫЕ)',
+          "  --cols N, --rows N  размер полотна в клетках (переопределяют пресет)",
+          "  --out ФАЙЛ          выходной HTML (по умолчанию patterns/out/<надпись>.html)",
+          "  --no-numbers        кружки без цифр-номеров коробочек",
+          "  --mirror            зеркальная схема",
+          "  --seed N            вариант искажений (--dropout/--slices/--blackout)",
+          "",
+          "ФАЙЛЫ ПРОЕКТА:",
+          "  patterns/config.json — пресеты: размеры, кружочки, цвета бисера",
+          "  patterns/type.txt    — шрифт: глиф = метка + 6 строк по 7 цифр 0-5",
+          "",
+          "Полный список параметров: python3 patterns/glitch_belt.py --help"]
+    print("\n".join(L))
+
+
 def parse_args(argv=None):
+    args = sys.argv[1:] if argv is None else list(argv)
+    if not args or args[0] == "help":
+        print_help_card()
+        raise SystemExit(0)
     p = argparse.ArgumentParser(
         prog="glitch_belt.py",
         description="Генератор печатных схем бисерных поясов с глитч-надписями "
@@ -607,7 +657,7 @@ def parse_args(argv=None):
     p.add_argument("--out", type=Path, default=None,
                    help="выходной HTML (по умолчанию patterns/out/<имя>.html)")
     p.set_defaults(numbers=True)
-    return p.parse_args(argv)
+    return p.parse_args(args)
 
 
 def main(argv=None) -> int:
