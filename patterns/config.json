@@ -3,7 +3,7 @@
 
   "belt_90": {
     "cols": 200,
-    "rows": 9,
+    "rows": 10,
     "pitch_mm": 4.5,
     "circle_d_mm": 3,
     "font": "type.txt",
@@ -19,7 +19,7 @@
 
   "bracelet_19": {
     "cols": 42,
-    "rows": 9,
+    "rows": 10,
     "pitch_mm": 4.5,
     "circle_d_mm": 3,
     "font": "type.txt",
@@ -35,7 +35,7 @@
 
   "bracelet_15": {
     "cols": 33,
-    "rows": 9,
+    "rows": 10,
     "pitch_mm": 4.5,
     "circle_d_mm": 3,
     "font": "type.txt",
