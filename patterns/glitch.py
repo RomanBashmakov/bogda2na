@@ -16,7 +16,11 @@ glitch.py — генератор печатных схем бисерных по
 * номер внутри кружка — порядковый номер цвета из палитры (номер коробочки):
   достал бисерину из коробочки №N → положил на кружок №N;
 * выпускает самодостаточный HTML (A4, inline SVG): сегменты пояса с линейками
-  и линиями отреза, легенда с подсчётом бисерин, калибровочная линейка.
+  и линиями отреза, легенда с подсчётом бисерин, калибровочная линейка;
+* рядом с основной схемой — папка <имя>_colsN_colorsM/ одноцветных схем:
+  HTML на каждый цвет (суффикс файла = № коробочки); в файле цвета №K
+  закрашены только его кружки — без цифры, с перекрестием-меткой центра,
+  остальные кружки прозрачные, с тонкой обводкой и без цифр.
 
 Зависимости: только стандартная библиотека Python 3.8+.
 
@@ -369,8 +373,30 @@ def num_font_size(circle_d: float, s: str) -> float:
     return circle_d * k
 
 
-def segment_svg(grid, c0, c1, pal, pitch, circle_d, show_numbers=True) -> str:
-    """SVG-сегмент сетки: колонки c0..c1 (не вкл.), мм-размеры точные."""
+def center_mark_svg(cx: float, cy: float, circle_d: float, hexcolor: str) -> str:
+    """Перекрестие в центре закрашенного кружка (одноцветные схемы).
+
+    Вместо цифры: центр бисерины отмечен точно, сажать кружок по нему.
+    """
+    arm = circle_d * 0.35
+    w = max(0.10, circle_d * 0.05)
+    ink = ink_for(hexcolor)
+    return (f'<line x1="{cx - arm:.2f}" y1="{cy:.2f}" '
+            f'x2="{cx + arm:.2f}" y2="{cy:.2f}" '
+            f'stroke="{ink}" stroke-width="{w:.2f}"/>'
+            f'<line x1="{cx:.2f}" y1="{cy - arm:.2f}" '
+            f'x2="{cx:.2f}" y2="{cy + arm:.2f}" '
+            f'stroke="{ink}" stroke-width="{w:.2f}"/>')
+
+
+def segment_svg(grid, c0, c1, pal, pitch, circle_d, show_numbers=True,
+                only_color=None) -> str:
+    """SVG-сегмент сетки: колонки c0..c1 (не вкл.), мм-размеры точные.
+
+    only_color — режим одноцветной схемы: кружки этого цвета залиты и несут
+    метку центра (перекрестие) вместо цифры, остальные — прозрачные, с тонкой
+    обводкой и без цифр.
+    """
     rows_n = len(grid)
     n = c1 - c0
     w = GUTTER + n * pitch + 1.0
@@ -405,6 +431,17 @@ def segment_svg(grid, c0, c1, pal, pitch, circle_d, show_numbers=True) -> str:
             num = row[c0 + j]
             color = pal["colors"][num]
             cx = GUTTER + j * pitch + pitch / 2
+            if only_color is not None:
+                if num == only_color:
+                    out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" '
+                               f'r="{rad:.2f}" fill="{color["hex"]}"/>')
+                    out.append(center_mark_svg(cx, cy, circle_d,
+                                               color["hex"]))
+                else:
+                    out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" '
+                               f'r="{rad:.2f}" fill="none" '
+                               f'stroke="#999999" stroke-width="0.12"/>')
+                continue
             out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{rad:.2f}" '
                        f'fill="{color["hex"]}"/>')
             if show_numbers:
@@ -443,8 +480,12 @@ def ruler_svg(width_mm: float = 100.0, caption: str = "") -> str:
 
 # ---------------------------------------------------------------- HTML ---
 
-def render_document(grid, pal, args, stats, counts):
-    """Сборка самодостаточного HTML. Возвращает (html, meta)."""
+def render_document(grid, pal, args, stats, counts, only_color=None):
+    """Сборка самодостаточного HTML. Возвращает (html, meta).
+
+    only_color — собрать одноцветную схему для цвета №only_color
+    (см. segment_svg); шапка и легенда — те же, в заголовке пометка о цвете.
+    """
     cols, rows_n = len(grid[0]), len(grid)
     pitch = args.pitch_mm
     circle_d = args.circle_d_mm
@@ -511,10 +552,21 @@ def render_document(grid, pal, args, stats, counts):
         f'<td>{counts[c["id"]]}</td>'
         f'<td>{counts[c["id"]] * 100.0 / total:.1f} %</td></tr>'
         for c in used)
+    if only_color is None:
+        h1_txt = f"{esc(title)} — схема пояса"
+        sub_txt = (f"глитч-надпись · страниц: {n_pages} · "
+                   f"сегментов: {len(segments)}")
+    else:
+        col = pal["colors"][only_color]
+        h1_txt = (f"{esc(title)} — одноцветная схема · "
+                  f"цвет №{only_color} {esc(col['name'])}")
+        sub_txt = (f"закрашен только цвет №{only_color} ({col['hex']}) · "
+                   f"крестик — центр бисерины · страниц: {n_pages} · "
+                   f"сегментов: {len(segments)}")
     header_card = f"""
 <div class="card">
-<h1>{esc(title)} — схема пояса</h1>
-<div class="sub">глитч-надпись · страниц: {n_pages} · сегментов: {len(segments)}</div>
+<h1>{h1_txt}</h1>
+<div class="sub">{sub_txt}</div>
 <table class="params">{params}</table>
 {ruler_svg(100.0)}
 </div>
@@ -534,7 +586,8 @@ def render_document(grid, pal, args, stats, counts):
         seg_blocks.append(
             f'<div class="seg"><div class="seg-title">Сегмент {i} из {len(segments)} · '
             f'колонки {c0 + 1}–{c1} · ряды 1–{rows_n}</div>'
-            + segment_svg(grid, c0, c1, pal, pitch, circle_d, args.numbers)
+            + segment_svg(grid, c0, c1, pal, pitch, circle_d, args.numbers,
+                          only_color)
             + '<div class="cut">✂ линия отреза</div></div>')
 
     body = []
@@ -558,7 +611,7 @@ def render_document(grid, pal, args, stats, counts):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)} — схема пояса</title>
+<title>{h1_txt}</title>
 <style>{CSS}</style>
 </head>
 <body>
@@ -614,6 +667,10 @@ def print_help_card() -> None:
           "  config.json — пресеты: размеры, кружочки, цвета бисера",
           "  type.txt    — шрифт: глиф = метка + 6 строк из цифр 0-5",
           "                (ширина буквы любая, ряды глифа одинаковые)",
+          "  out/<имя>_colsN_colorsM/ — одноцветные схемы: файл",
+          "                <имя>_<№>.html на каждый цвет (№ = коробочка);",
+          "                закрашен только этот цвет, крестик — центр,",
+          "                остальные кружки — прозрачные тонкие контуры",
           "",
           "Полный список параметров: python3 glitch.py --help"]
     print("\n".join(L))
@@ -749,6 +806,16 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc, encoding="utf-8")
 
+    # одноцветные схемы: папка рядом с основной, файл на каждый цвет
+    used = [c for c in pal["colors"] if counts.get(c["id"], 0)]
+    colors_dir = out.parent / f"{out.stem}_cols{cols}_colors{len(used)}"
+    colors_dir.mkdir(parents=True, exist_ok=True)
+    for c in used:
+        doc_c, _ = render_document(grid, pal, args, stats, counts,
+                                   only_color=c["id"])
+        (colors_dir / f"{out.stem}_{c['id']}.html").write_text(
+            doc_c, encoding="utf-8")
+
     if args.preset:
         print(f"Пресет: {args.preset} · {args.config}")
     print(f"Надпись: {text}")
@@ -768,6 +835,7 @@ def main(argv=None) -> int:
     for w in meta["warnings"]:
         print(f"⚠ {w}")
     print(f"Страниц: {meta['pages']} · сегментов: {meta['segments']}")
+    print(f"Одноцветные схемы: {colors_dir} · файлов: {len(used)}")
     print(f"Готово: {out}")
     return 0
 
