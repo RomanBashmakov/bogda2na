@@ -1,0 +1,230 @@
+/* style.css — оформление страницы менеджера схем */
+
+:root {
+  --ink: #1d2433;
+  --muted: #6b7280;
+  --line: #d9dee8;
+  --accent: #2e4fd8;
+  --bg: #f6f7fb;
+  --ok-bg: #e8f6ec;
+  --ok-line: #2e7d43;
+  --err-bg: #fbeaea;
+  --err-line: #b3261e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+  max-width: 980px;
+  font: 15px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+header h1 { margin: 0 0 4px; font-size: 24px; }
+.hint { color: var(--muted); margin: 0 0 20px; }
+.meta { color: var(--muted); font-size: 13px; }
+code { background: #eceff5; padding: 1px 5px; border-radius: 4px; }
+
+/* --- вкладки --- */
+
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+
+.tab {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 8px 18px;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.tab.active {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: #fff;
+  box-shadow: 0 -2px 0 var(--accent) inset;
+}
+
+.panel {
+  display: none;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0 10px 10px 10px;
+  padding: 18px;
+}
+
+.panel.active { display: block; }
+
+/* --- формы --- */
+
+.gen-form .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+label.wide { grid-column: 1 / -1; }
+
+input, select {
+  font: inherit;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+details { margin: 10px 0 14px; }
+summary { cursor: pointer; color: var(--accent); margin-bottom: 10px; }
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 10px;
+}
+
+.checks label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.run {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 26px;
+}
+
+.run:disabled { opacity: 0.6; cursor: wait; }
+
+.minor {
+  background: #eceff5;
+  color: var(--ink);
+  padding: 8px 14px;
+}
+
+.del {
+  background: none;
+  color: var(--err-line);
+  padding: 4px 8px;
+}
+
+.del:hover { background: var(--err-bg); }
+
+/* --- загрузка картинок --- */
+
+.upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.uploads-list { margin-bottom: 14px; }
+
+.up {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.upname { font-weight: 600; }
+
+/* --- результат запуска --- */
+
+.run-result {
+  margin: 18px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.run-result.ok { background: var(--ok-bg); border-color: var(--ok-line); }
+.run-result.err { background: var(--err-bg); border-color: var(--err-line); }
+
+.run-result pre {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  background: rgba(255, 255, 255, 0.65);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+/* --- таблица схем --- */
+
+#schemes h2 { font-size: 19px; }
+
+#schemes-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#schemes-table th, #schemes-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+#schemes-table th {
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  background: #f1f3f9;
+}
+
+#schemes-table tr:last-child td { border-bottom: none; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.lnk { color: var(--accent); cursor: pointer; }
+
+.single-row td { background: #f8f9fd; }
+.singles { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 2px 0; }
+
+.empty { color: var(--muted); }
+
+.hidden { display: none; }

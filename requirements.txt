@@ -1,6 +1,9 @@
-# Внешние зависимости генераторов схем.
-# Нужна только img_generator/img_belt.py (картинка → схема):
+# Внешние зависимости проекта.
+# Pillow — нужна только img_generator/img_belt.py (картинка → схема);
 # glitch.py и belt_rus.py работают на чистой стандартной библиотеке.
+# Flask — веб-интерфейс web/app.py (запуск генераторов из браузера);
+# при системном Python без pip: sudo apt install python3-flask.
 #
 # Установка: bash setup.sh (Linux/macOS) или setup.cmd (Windows) из корня.
 Pillow>=9.0
+Flask>=2.0

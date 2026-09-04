@@ -4,3 +4,6 @@
 # Кэш Python
 __pycache__/
 *.pyc
+
+# Загруженные картинки для веб-интерфейса web/app.py
+web/uploads/

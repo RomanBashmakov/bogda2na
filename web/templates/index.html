@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bogda2na — генераторы схем</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>bogda2na — генераторы схем для бисероплетения</h1>
+  <p class="hint">Кружок = бисерина, цифра = № коробочки этого цвета.
+     Печать: открыть схему в новой вкладке → Ctrl+P, A4, масштаб 100 %,
+     фоновая графика вкл.</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="glitch">Надпись</button>
+  <button class="tab" data-tab="belt">Этно-пояс</button>
+  <button class="tab" data-tab="img">Картинка</button>
+</nav>
+
+<section id="glitch" class="panel active">
+  <form id="form-glitch" class="gen-form">
+    <div class="grid">
+      <label class="wide">Надпись <input name="text" required placeholder="ГЛИТЧ"></label>
+      <label>Пресет
+        <select name="preset"><option value="">— по умолчанию —</option></select>
+      </label>
+      <label>Длина, клеток <input name="cols" type="number" min="1" placeholder="пресет / 360"></label>
+      <label>Ряды <input name="rows" type="number" min="1" placeholder="пресет / 16"></label>
+      <label>Заголовок схемы <input name="title" placeholder="как надпись"></label>
+    </div>
+    <details>
+      <summary>Дополнительно (шаг сетки, глитч, шрифт…)</summary>
+      <div class="grid">
+        <label>Шаг сетки, мм <input name="pitch-mm" type="number" step="0.1" min="0"></label>
+        <label>Диаметр кружка, мм <input name="circle-d-mm" type="number" step="0.1" min="0"></label>
+        <label>Сила искажений 0–1 <input name="glitch" type="number" step="0.05" min="0" max="1"></label>
+        <label>Seed <input name="seed" type="number" placeholder="42"></label>
+        <label>Трекинг (промежуток), колонок <input name="tracking" type="number" min="0" placeholder="1"></label>
+        <label>Файл шрифта <input name="font" placeholder="type.txt"></label>
+        <label>Имя файла схемы <input name="out" placeholder="out/&lt;надпись&gt;.html"></label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" name="dropout"> выпадения пикселей</label>
+        <label><input type="checkbox" name="slices"> сдвиг срезов</label>
+        <label><input type="checkbox" name="blackout"> блэкаут-блоки</label>
+        <label><input type="checkbox" name="mirror"> зеркальная схема</label>
+        <label><input type="checkbox" name="no-symmetrize"> не подгонять трекинг</label>
+        <label><input type="checkbox" name="no-numbers"> кружки без цифр</label>
+      </div>
+    </details>
+    <button class="run" type="submit">Сгенерировать</button>
+  </form>
+</section>
+
+<section id="belt" class="panel">
+  <form id="form-belt" class="gen-form">
+    <p>Пояс «этно»: ромб → крест → ёлочка, 200×10 клеток, 900×45 мм,
+       шаг 4.5 мм, кружок ⌀3 мм. Параметры зашиты в скрипте
+       <code>belt_rus_generator/belt_rus.py</code> — просто запустить.</p>
+    <button class="run" type="submit">Сгенерировать</button>
+  </form>
+</section>
+
+<section id="img" class="panel">
+  <form id="form-img" class="gen-form">
+    <div class="upload-row">
+      <label>Картинка
+        <select name="image"><option value="">— выберите загруженную —</option></select>
+      </label>
+      <input type="file" id="img-file" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp">
+      <button type="button" id="img-upload-btn" class="minor">Загрузить</button>
+    </div>
+    <div id="uploads-list" class="uploads-list"></div>
+    <div class="grid">
+      <label>Сколько цветов <input name="colors" type="number" min="2" max="30" value="7"></label>
+      <label>Длина, клеток <input name="cols" type="number" min="1" value="200"></label>
+      <label>Заголовок схемы <input name="title"></label>
+    </div>
+    <details>
+      <summary>Дополнительно (шаг сетки, дизеринг…)</summary>
+      <div class="grid">
+        <label>Шаг сетки, мм <input name="pitch-mm" type="number" step="0.1" min="0"></label>
+        <label>Диаметр кружка, мм <input name="circle-d-mm" type="number" step="0.1" min="0"></label>
+        <label>Имя файла схемы <input name="out" placeholder="out/&lt;имя картинки&gt;.html"></label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" name="dither"> дизеринг Флойда—Стейнберга</label>
+        <label><input type="checkbox" name="mirror"> зеркальная схема</label>
+        <label><input type="checkbox" name="no-numbers"> кружки без цифр</label>
+      </div>
+    </details>
+    <button class="run" type="submit">Сгенерировать</button>
+  </form>
+</section>
+
+<div id="run-result" class="run-result hidden"></div>
+
+<section id="schemes">
+  <h2>Готовые схемы</h2>
+  <table id="schemes-table">
+    <thead><tr>
+      <th>Схема</th><th>Генератор</th><th>Одноцветные</th>
+      <th>Изменена</th><th>Размер</th><th></th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="empty hidden">Пока пусто — сгенерируйте первую схему.</p>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
