@@ -9,6 +9,8 @@
 
 Запуск (из любой папки):  python3 belt_rus_generator/belt_rus.py
 Выход:                    belt_rus_generator/out/poyas_etno.html
+                          + папка poyas_etno_cols200_colors7/ — одноцветные
+                          схемы: файл poyas_etno_<№>.html на каждый цвет
 """
 
 import datetime as dt
@@ -81,8 +83,12 @@ def build_grid():
     return [row * REPEATS for row in rap]
 
 
-def render_document(grid, pal, counts, title):
-    """Та же сборка HTML, что в glitch.render_document, поля — про орнамент."""
+def render_document(grid, pal, counts, title, only_color=None):
+    """Та же сборка HTML, что в glitch.render_document, поля — про орнамент.
+
+    only_color — одноцветная схема этого цвета: залиты только его кружки
+    (с меткой центра вместо цифры), остальные — прозрачные контуры.
+    """
     cols, rows_n = len(grid[0]), len(grid)
     pitch, circle_d = PITCH, CIRCLE_D
     used = [c for c in pal["colors"] if counts.get(c["id"], 0)]
@@ -125,10 +131,21 @@ def render_document(grid, pal, counts, title):
         f'<td>{counts[c["id"]]}</td>'
         f'<td>{counts[c["id"]] * 100.0 / total:.1f} %</td></tr>'
         for c in used)
+    if only_color is None:
+        h1_txt = f"{glitch.esc(title)} — схема пояса"
+        sub_txt = (f"этнический орнамент · страниц: {n_pages} · "
+                   f"сегментов: {len(segments)}")
+    else:
+        col = pal["colors"][only_color]
+        h1_txt = (f"{glitch.esc(title)} — одноцветная схема · "
+                  f"цвет №{only_color} {glitch.esc(col['name'])}")
+        sub_txt = (f"закрашен только цвет №{only_color} ({col['hex']}) · "
+                   f"крестик — центр бисерины · страниц: {n_pages} · "
+                   f"сегментов: {len(segments)}")
     header_card = f"""
 <div class="card">
-<h1>{glitch.esc(title)} — схема пояса</h1>
-<div class="sub">этнический орнамент · страниц: {n_pages} · сегментов: {len(segments)}</div>
+<h1>{h1_txt}</h1>
+<div class="sub">{sub_txt}</div>
 <table class="params">{params}</table>
 {glitch.ruler_svg(100.0)}
 </div>
@@ -147,7 +164,8 @@ def render_document(grid, pal, counts, title):
         seg_blocks.append(
             f'<div class="seg"><div class="seg-title">Сегмент {i} из {len(segments)} · '
             f'колонки {c0 + 1}–{c1} · ряды 1–{rows_n}</div>'
-            + glitch.segment_svg(grid, c0, c1, pal, pitch, circle_d, True)
+            + glitch.segment_svg(grid, c0, c1, pal, pitch, circle_d, True,
+                                 only_color)
             + '<div class="cut">✂ линия отреза</div></div>')
 
     body = []
@@ -171,7 +189,7 @@ def render_document(grid, pal, counts, title):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{glitch.esc(title)} — схема пояса</title>
+<title>{h1_txt}</title>
 <style>{glitch.CSS}</style>
 </head>
 <body>
@@ -205,6 +223,18 @@ def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(doc, encoding="utf-8")
 
+    # одноцветные схемы: папка рядом с основной, файл на каждый цвет
+    used = [c for c in PAL["colors"] if counts.get(c["id"], 0)]
+    colors_dir = OUT.parent / f"{OUT.stem}_cols{COLS}_colors{len(used)}"
+    colors_dir.mkdir(parents=True, exist_ok=True)
+    for c in used:
+        doc_c, _ = render_document(grid, PAL, counts, TITLE,
+                                   only_color=c["id"])
+        assert doc_c.count("<circle ") == 2000
+        assert doc_c.count("</html>") == 1
+        (colors_dir / f"{OUT.stem}_{c['id']}.html").write_text(
+            doc_c, encoding="utf-8")
+
     print("Пресет: belt_90 (config.json)")
     print("Рисунок: ромб → крест → ёлочка · раппорт 40 колонок × 5 повторов")
     print(f"Сетка: {COLS} × {ROWS} = {COLS * PITCH:.1f} × {ROWS * PITCH:.1f} мм · "
@@ -213,6 +243,7 @@ def main() -> int:
     for c in PAL["colors"]:
         print(f"  №{c['id']} {c['hex']} {c['name']}: {counts[c['id']]}")
     print(f"Страниц: {meta['pages']} · сегментов: {meta['segments']}")
+    print(f"Одноцветные схемы: {colors_dir} · файлов: {len(used)}")
     print(f"Готово: {OUT}")
     return 0
 

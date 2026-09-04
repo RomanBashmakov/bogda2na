@@ -13,6 +13,8 @@
 Запуск (из любой папки):
     python3 img_generator/img_belt.py картинка.png -n 8
 Выход: img_generator/out/<имя_картинки>.html
+       + папка <имя>_colsN_colorsM/ — одноцветные схемы: файл
+         <имя>_<№>.html на каждый цвет (№ = номер коробочки)
 Шпаргалка с примерами: python3 img_generator/img_belt.py help
 (она же показывается при запуске без аргументов).
 
@@ -92,11 +94,13 @@ def load_cells(img_path: Path, cols: int, n_colors: int, dither: bool):
     return grid, colors, (w, h), rows
 
 
-def block_svg(grid, c0, c1, r0, r1, pal, pitch, circle_d, show_numbers=True):
+def block_svg(grid, c0, c1, r0, r1, pal, pitch, circle_d, show_numbers=True,
+              only_color=None):
     """SVG-блок: колонки c0..c1 (не вкл.), ряды r0..r1 (не вкл.).
 
     Нумерация колонок и рядов — глобальная (для склейки блоков),
     мм-размеры точные. Аналог glitch.segment_svg + сдвиг номеров рядов.
+    only_color — режим одноцветной схемы (см. glitch.segment_svg).
     """
     n, m = c1 - c0, r1 - r0
     w = glitch.GUTTER + n * pitch + 1.0
@@ -133,6 +137,17 @@ def block_svg(grid, c0, c1, r0, r1, pal, pitch, circle_d, show_numbers=True):
             num = row[c0 + j]
             color = pal["colors"][num]
             cx = glitch.GUTTER + j * pitch + pitch / 2
+            if only_color is not None:
+                if num == only_color:
+                    out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" '
+                               f'r="{rad:.2f}" fill="{color["hex"]}"/>')
+                    out.append(glitch.center_mark_svg(cx, cy, circle_d,
+                                                      color["hex"]))
+                else:
+                    out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" '
+                               f'r="{rad:.2f}" fill="none" '
+                               f'stroke="#999999" stroke-width="0.12"/>')
+                continue
             out.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{rad:.2f}" '
                        f'fill="{color["hex"]}"/>')
             if show_numbers:
@@ -146,8 +161,11 @@ def block_svg(grid, c0, c1, r0, r1, pal, pitch, circle_d, show_numbers=True):
     return "".join(out)
 
 
-def render_document(grid, pal, counts, args, img_size):
-    """Сборка HTML: блоки ≤ листа по ширине и высоте, склейка по номерам."""
+def render_document(grid, pal, counts, args, img_size, only_color=None):
+    """Сборка HTML: блоки ≤ листа по ширине и высоте, склейка по номерам.
+
+    only_color — одноцветная схема этого цвета (см. glitch.segment_svg).
+    """
     cols, rows_n = len(grid[0]), len(grid)
     pitch, circle_d = args.pitch_mm, args.circle_d_mm
     used = [c for c in pal["colors"] if counts.get(c["id"], 0)]
@@ -204,10 +222,21 @@ def render_document(grid, pal, counts, args, img_size):
         f'<td>{counts[c["id"]]}</td>'
         f'<td>{counts[c["id"]] * 100.0 / total:.1f} %</td></tr>'
         for c in used)
+    if only_color is None:
+        h1_txt = f"{glitch.esc(args.title)} — схема из картинки"
+        sub_txt = (f"постеризация {len(used)} цветов · страниц: {n_pages} · "
+                   f"блоков: {len(blocks)}")
+    else:
+        col = pal["colors"][only_color]
+        h1_txt = (f"{glitch.esc(args.title)} — одноцветная схема · "
+                  f"цвет №{only_color} {glitch.esc(col['name'])}")
+        sub_txt = (f"закрашен только цвет №{only_color} ({col['hex']}) · "
+                   f"крестик — центр бисерины · страниц: {n_pages} · "
+                   f"блоков: {len(blocks)}")
     header_card = f"""
 <div class="card">
-<h1>{glitch.esc(args.title)} — схема из картинки</h1>
-<div class="sub">постеризация {len(used)} цветов · страниц: {n_pages} · блоков: {len(blocks)}</div>
+<h1>{h1_txt}</h1>
+<div class="sub">{sub_txt}</div>
 <table class="params">{params}</table>
 {glitch.ruler_svg(100.0)}
 </div>
@@ -227,7 +256,7 @@ def render_document(grid, pal, counts, args, img_size):
             f'<div class="seg"><div class="seg-title">Блок {i} из {len(blocks)} · '
             f'колонки {c0 + 1}–{c1} · ряды {r0 + 1}–{r1}</div>'
             + block_svg(grid, c0, c1, r0, r1, pal, pitch, circle_d,
-                        args.numbers)
+                        args.numbers, only_color)
             + '<div class="cut">✂ линия отреза</div></div>')
 
     body = []
@@ -251,7 +280,7 @@ def render_document(grid, pal, counts, args, img_size):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{glitch.esc(args.title)} — схема из картинки</title>
+<title>{h1_txt}</title>
 <style>{glitch.CSS}</style>
 </head>
 <body>
@@ -293,6 +322,10 @@ def print_help_card() -> None:
          "",
          "ФАЙЛЫ:",
          "  схема ложится в img_generator/out/<имя картинки>.html;",
+         "  рядом — папка <имя>_colsN_colorsM/: одноцветные схемы,",
+         "  файл <имя>_<№>.html на каждый цвет (№ = номер коробочки;",
+         "  закрашен только этот цвет, крестик — центр бисерины,",
+         "  остальные кружки — прозрачные тонкие контуры);",
          "  общие части рендера импортируются из ../patterns/glitch.py.",
          "",
          "Полный список параметров: python3 img_generator/img_belt.py --help"]
@@ -368,6 +401,18 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc, encoding="utf-8")
 
+    # одноцветные схемы: папка рядом с основной, файл на каждый цвет
+    used = [c for c in colors if counts.get(c["id"], 0)]
+    colors_dir = out.parent / f"{out.stem}_cols{cols}_colors{len(used)}"
+    colors_dir.mkdir(parents=True, exist_ok=True)
+    for c in used:
+        doc_c, _ = render_document(grid, pal, counts, args, img_size,
+                                   only_color=c["id"])
+        assert doc_c.count("<circle ") == rows * cols
+        assert doc_c.count("</html>") == 1
+        (colors_dir / f"{out.stem}_{c['id']}.html").write_text(
+            doc_c, encoding="utf-8")
+
     print(f"Картинка: {args.image} · {img_size[0]}×{img_size[1]} px · "
           f"рядов из пропорций: {rows}")
     print(f"Постеризация: {len(counts)} цветов · "
@@ -386,6 +431,7 @@ def main(argv=None) -> int:
         if counts.get(c["id"]):
             print(f"  №{c['id']} {c['hex']} {c['name']}: {counts[c['id']]}")
     print(f"Страниц: {meta['pages']}")
+    print(f"Одноцветные схемы: {colors_dir} · файлов: {len(used)}")
     print(f"Готово: {out}")
     return 0
 
