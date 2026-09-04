@@ -18,7 +18,8 @@
 Шпаргалка с примерами: python3 img_generator/img_belt.py help
 (она же показывается при запуске без аргументов).
 
-Зависимости: Pillow (pip install Pillow).
+Зависимости: Pillow. Один раз запусти setup.sh (Linux/macOS) или setup.cmd
+(Windows) из корня проекта — скрипт создаст .venv и поставит requirements.txt.
 """
 
 import argparse

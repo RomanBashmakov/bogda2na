@@ -1,0 +1,6 @@
+# Внешние зависимости генераторов схем.
+# Нужна только img_generator/img_belt.py (картинка → схема):
+# glitch.py и belt_rus.py работают на чистой стандартной библиотеке.
+#
+# Установка: bash setup.sh (Linux/macOS) или setup.cmd (Windows) из корня.
+Pillow>=9.0

@@ -1,0 +1,6 @@
+# Виртуальное окружение, создаваемое setup.sh / setup.cmd
+.venv/
+
+# Кэш Python
+__pycache__/
+*.pyc
