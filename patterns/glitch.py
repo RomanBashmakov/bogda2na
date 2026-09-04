@@ -5,9 +5,10 @@ glitch.py — генератор печатных схем бисерных по
 
 Что делает
 ----------
-* растрирует надпись многоцветным пиксельным шрифтом 7×6 из файла type.txt:
-  каждый пиксель буквы несёт свой цвет 0-5 (слева пурпурный/жёлтый, в середине
-  белый, справа голубой/синий) — «шлейф» зашит в сам шрифт;
+* растрирует надпись многоцветным пиксельным шрифтом из файла type.txt:
+  высота букв 6 клеток, ширина у каждой буквы своя (из файла); каждый
+  пиксель несёт свой цвет 0-5 (слева пурпурный/жёлтый, в середине белый,
+  справа голубой/синий) — «шлейф» зашит в сам шрифт;
 * искажения (выпадения пикселей, сдвиг срезов, блэкауты) — опционально,
   флаги --dropout / --slices / --blackout, сила — --glitch;
 * строит сетку кружочков с фиксированным шагом в миллиметрах — под печатную
@@ -41,8 +42,10 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "config.json"
 DEFAULT_FONT = HERE / "type.txt"
 
-# Шрифт: глиф 7 колонок × 6 рядов, клетка — цифра цвета 0-5 (0 = фон).
-GLYPH_W, GLYPH_H = 7, 6
+# Шрифт: глиф — 6 рядов одинаковой ширины; ширина у каждого глифа своя
+# (в type.txt встречаются буквы в 7, 8 и 9 колонок). Клетка — цифра
+# цвета 0-5 (0 = фон).
+GLYPH_H = 6
 
 # --- Геометрия страницы A4 (мм) ---
 PAGE_W, PAGE_H = 210.0, 297.0   # портрет
@@ -93,17 +96,19 @@ table { border-collapse: collapse; }
 }
 """
 
-# --------------------------------------------------------- ШРИФТ 7×6 ---
+# ----------------------------------------------------------- ШРИФТ ---
 # Многоцветный пиксельный шрифт живёт в type.txt: глиф = строка-метка +
-# 6 строк по 7 цифр 0-5 (0 — фон/пусто, 1-5 — цвета = номера коробочек).
+# 6 строк из цифр 0-5 (0 — фон/пусто, 1-5 — цвета = номера коробочек).
+# Ширина глифа — любая, но все 6 его рядов одинаковой длины.
 # Шрифт можно править в файле — код перечитывает его при каждом запуске.
 
 
 def load_font(path: Path) -> dict:
-    """Шрифт из type.txt: {символ: 6 кортежей по 7 цифр 0-5}.
+    """Шрифт из type.txt: {символ: 6 кортежей из цифр 0-5}.
 
-    Блоки разделяются пустыми строками; блок из одной строки — комментарий.
-    Метка «_» обозначает пробел.
+    Высота глифа — всегда 6 рядов; ширина у каждого глифа своя, но все
+    6 его рядов одинаковой длины. Блоки разделяются пустыми строками;
+    блок из одной строки — комментарий. Метка «_» обозначает пробел.
     """
     try:
         raw = path.read_text(encoding="utf-8")
@@ -132,10 +137,17 @@ def load_font(path: Path) -> dict:
             sys.exit(f"Шрифт {path}: «{block[0]}» — метка глифа должна "
                      f"быть одним символом.")
         rows = []
+        w = None
         for i, row in enumerate(block[1:], 1):
-            if len(row) != GLYPH_W or set(row) - set("012345"):
+            if set(row) - set("012345"):
                 sys.exit(f"Шрифт {path}: глиф «{block[0]}», строка {i}: "
-                         f"«{row}» — нужно {GLYPH_W} цифр из 0-5.")
+                         f"«{row}» — допустимы только цифры 0-5.")
+            if w is None:
+                w = len(row)
+            elif len(row) != w:
+                sys.exit(f"Шрифт {path}: глиф «{block[0]}», строка {i}: "
+                         f"«{row}» — ряды глифа разной ширины ({w} и "
+                         f"{len(row)}); сделайте их одинаковой длины.")
             rows.append(tuple(int(d) for d in row))
         if label in glyphs:
             sys.exit(f"Шрифт {path}: глиф «{block[0]}» определён дважды.")
@@ -145,15 +157,15 @@ def load_font(path: Path) -> dict:
     return glyphs
 
 
-def text_width(text: str, tracking: int) -> int:
-    """Ширина строки в колонках при заданном трекинге (промежутке)."""
+def text_width(text: str, font: dict, tracking: int) -> int:
+    """Ширина строки в колонках: сумма ширин глифов + трекинг (промежутки)."""
     if not text:
         return 0
-    return GLYPH_W * len(text) + tracking * (len(text) - 1)
+    return sum(len(font[ch][0]) for ch in text) + tracking * (len(text) - 1)
 
 
 def render_text(text: str, font: dict, tracking: int):
-    """Растеризация строки шрифтом 7×6 → 6 списков из цифр 0-5."""
+    """Растеризация строки шрифтом из type.txt → 6 списков из цифр 0-5."""
     rows: list[list[int]] = [[] for _ in range(GLYPH_H)]
     last = len(text) - 1
     for i, ch in enumerate(text):
@@ -166,7 +178,8 @@ def render_text(text: str, font: dict, tracking: int):
     return rows
 
 
-def pick_tracking(text: str, cols: int, want: int, symmetrize: bool):
+def pick_tracking(text: str, cols: int, want: int, symmetrize: bool,
+                  font: dict):
     """Подбор трекинга, при котором поля слева/справа строго равны.
 
     Возвращает (трекинг, подгоняли_ли). Если варианта нет — исходный трекинг.
@@ -181,7 +194,7 @@ def pick_tracking(text: str, cols: int, want: int, symmetrize: bool):
         if t < 0 or t in seen:
             continue
         seen.add(t)
-        free = cols - text_width(text, t)
+        free = cols - text_width(text, font, t)
         if free >= 2 and free % 2 == 0:
             return t, t != want
     return want, False
@@ -266,9 +279,9 @@ def build_grid(text, cols, rows_n, *, tracking, glitch, seed, pal, font,
     if rows_n < GLYPH_H:
         sys.exit(f"Ширина пояса — {rows_n} рядов, а текст занимает {GLYPH_H}. "
                  f"Увеличьте --rows (или поле rows в пресете).")
-    tr, tr_adj = pick_tracking(text, cols, tracking, symmetrize)
+    tr, tr_adj = pick_tracking(text, cols, tracking, symmetrize, font)
     tgrid = render_text(text, font, tr)
-    W = text_width(text, tr)
+    W = text_width(text, font, tr)
     if W > cols - 2:
         sys.exit(f"Надпись ({W} колонок при трекинге {tr}) не влезает "
                  f"в сетку ({cols} колонок). Увеличьте --cols или "
@@ -599,7 +612,8 @@ def print_help_card() -> None:
           "",
           "ФАЙЛЫ (лежат рядом со скриптом):",
           "  config.json — пресеты: размеры, кружочки, цвета бисера",
-          "  type.txt    — шрифт: глиф = метка + 6 строк по 7 цифр 0-5",
+          "  type.txt    — шрифт: глиф = метка + 6 строк из цифр 0-5",
+          "                (ширина буквы любая, ряды глифа одинаковые)",
           "",
           "Полный список параметров: python3 glitch.py --help"]
     print("\n".join(L))
