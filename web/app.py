@@ -14,6 +14,8 @@
   * список готовых схем из out/ каждого генератора: просмотр в новой
     вкладке (/view/<gen>/<файл>) и удаление (основной файл + папки
     одноцветных схем <имя>_colsN_colorsM/);
+  * редактор схем «picher» — страница /picher (файлы в picher/schemes/):
+    рисование схемы мышью, сохранение/открытие/удаление JSON-схем;
   * stdout/stderr скрипта и ссылки на созданные файлы.
 
 Генераторы запускаются subprocess'ом интерпретатором .venv, если он есть
@@ -40,6 +42,9 @@ from flask import Flask, abort, jsonify, render_template, request, \
 WEB_DIR = Path(__file__).resolve().parent
 ROOT = WEB_DIR.parent
 UPLOADS = WEB_DIR / "uploads"
+PICH = ROOT / "picher"
+PICH_SCHEMES = PICH / "schemes"
+PICH_MAX_COLORS = 64
 
 GENERATORS = {
     "glitch": {"script": ROOT / "patterns" / "glitch.py",
@@ -304,6 +309,133 @@ def api_schemes_delete():
                 and COLORS_DIR_RE.search(d.name):
             shutil.rmtree(d)
     main.unlink()
+    return jsonify(ok=True)
+
+
+# --- редактор picher: пресеты, схемы, API ---
+
+HEX_RE = re.compile(r"#[0-9A-Fa-f]{3,8}")
+
+
+def pich_presets():
+    """Пресеты из patterns/config.json: имя + размеры + палитра коробочек."""
+    cfg = GENERATORS["glitch"]["dir"] / "config.json"
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for key, v in data.items():
+        if key.startswith("_") or not isinstance(v, dict):
+            continue
+        colors = [{"name": str(c.get("name", "")), "hex": str(c.get("hex", ""))}
+                  for c in v.get("colors", []) if isinstance(c, dict)]
+        colors = colors[:PICH_MAX_COLORS]
+        if not colors:
+            continue
+        out.append({"name": key, "cols": v.get("cols"), "rows": v.get("rows"),
+                    "colors": colors})
+    return out
+
+
+def _pich_name(value) -> str:
+    """Имя схемы: чистится как BAD_NAME, суффикс .json отрезается."""
+    name = BAD_NAME.sub("_", str(value or "").strip())
+    if name.lower().endswith(".json"):
+        name = name[:-5]
+    return name
+
+
+def _pich_data(data):
+    """Валидация тела схемы из редактора; ошибки — BadInput."""
+    if not isinstance(data, dict):
+        raise BadInput("Схема должна быть объектом")
+    try:
+        cols, rows = int(data["cols"]), int(data["rows"])
+    except (KeyError, TypeError, ValueError):
+        raise BadInput("cols/rows: нужны целые числа")
+    if not (1 <= cols <= 2000 and 1 <= rows <= 500):
+        raise BadInput("Размер: колонок 1–2000, рядов 1–500")
+    colors = data.get("colors")
+    if not isinstance(colors, list) or not 1 <= len(colors) <= PICH_MAX_COLORS:
+        raise BadInput(f"Цветов должно быть 1–{PICH_MAX_COLORS}")
+    norm_colors = []
+    for c in colors:
+        if not isinstance(c, dict) or not HEX_RE.fullmatch(str(c.get("hex", ""))):
+            raise BadInput("Каждый цвет: {name, hex}, hex вида #rrggbb")
+        norm_colors.append({"name": str(c.get("name", ""))[:60],
+                            "hex": str(c["hex"])})
+    cells = data.get("cells")
+    if not isinstance(cells, list) or len(cells) != cols * rows:
+        raise BadInput("cells: длина должна быть cols × rows")
+    for v in cells:
+        if not isinstance(v, int) or not -1 <= v < len(norm_colors):
+            raise BadInput("cells: значения — номер цвета или -1 (пусто)")
+    return {"version": 1, "cols": cols, "rows": rows,
+            "colors": norm_colors, "cells": cells}
+
+
+@app.get("/picher")
+def picher_page():
+    return send_from_directory(PICH, "editor.html")
+
+
+@app.get("/picher/api/presets")
+def picher_api_presets():
+    return jsonify(presets=pich_presets())
+
+
+@app.get("/picher/api/schemes")
+def picher_api_schemes():
+    items = []
+    if PICH_SCHEMES.is_dir():
+        for f in sorted(PICH_SCHEMES.iterdir(), key=lambda x: -x.stat().st_mtime):
+            if f.is_file() and f.suffix.lower() == ".json":
+                st = f.stat()
+                items.append({"name": f.stem, "mtime": st.st_mtime,
+                              "size": st.st_size})
+    return jsonify(schemes=items)
+
+
+@app.post("/picher/api/save")
+def picher_api_save():
+    p = request.get_json(force=True, silent=True) or {}
+    name = _pich_name(p.get("name"))
+    if not name:
+        return jsonify(ok=False, error="Укажите имя схемы"), 400
+    try:
+        data = _pich_data(p.get("data"))
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    PICH_SCHEMES.mkdir(parents=True, exist_ok=True)
+    (PICH_SCHEMES / f"{name}.json").write_text(
+        json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8")
+    return jsonify(ok=True, name=name)
+
+
+@app.post("/picher/api/load")
+def picher_api_load():
+    name = _pich_name((request.get_json(force=True, silent=True) or {}).get("name"))
+    path = PICH_SCHEMES / f"{name}.json"
+    if not name or not path.is_file():
+        return jsonify(ok=False, error="Схемы нет"), 404
+    try:
+        data = _pich_data(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as e:
+        return jsonify(ok=False, error=f"Файл битый: {e}"), 400
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, data=data)
+
+
+@app.post("/picher/api/delete")
+def picher_api_delete():
+    name = _pich_name((request.get_json(force=True, silent=True) or {}).get("name"))
+    path = PICH_SCHEMES / f"{name}.json"
+    if not name or not path.is_file():
+        return jsonify(ok=False, error="Схемы нет"), 404
+    path.unlink()
     return jsonify(ok=True)
 
 

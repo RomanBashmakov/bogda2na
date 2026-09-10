@@ -220,6 +220,11 @@ button {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* --- вкладка редактора picher --- */
+
+.link-run { display: inline-block; padding: 10px 26px; text-decoration: none; }
+.link-run:hover { text-decoration: none; opacity: 0.9; }
+
 .lnk { color: var(--accent); cursor: pointer; }
 
 .single-row td { background: #f8f9fd; }

@@ -18,6 +18,7 @@
   <button class="tab active" data-tab="glitch">Надпись</button>
   <button class="tab" data-tab="belt">Этно-пояс</button>
   <button class="tab" data-tab="img">Картинка</button>
+  <button class="tab" data-tab="picher">Рисовать схему</button>
 </nav>
 
 <section id="glitch" class="panel active">
@@ -94,6 +95,16 @@
     </details>
     <button class="run" type="submit">Сгенерировать</button>
   </form>
+</section>
+
+<section id="picher" class="panel">
+  <p>«Picher» — редактор схем: рисуешь схему сам (клетка = бисерина,
+     № = коробочка с бисером цвета). Пресеты и палитра правятся на месте,
+     симметрия, выделение-раппорт с повтором до конца, заполнение пустого
+     фоном. Схемы хранятся на сервере в <code>picher/schemes/</code>,
+     плюс экспорт/импорт файла JSON. Печатная A4-схема — отдельный шаг,
+     будет позже.</p>
+  <a class="run link-run" href="/picher" target="_blank" rel="noopener">Открыть редактор →</a>
 </section>
 
 <div id="run-result" class="run-result hidden"></div>

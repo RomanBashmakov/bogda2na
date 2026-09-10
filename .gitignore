@@ -7,3 +7,9 @@ __pycache__/
 
 # Загруженные картинки для веб-интерфейса web/app.py
 web/uploads/
+
+# Озвучка книг (tts/book2audio.py): готовые mp3 и демо
+tts/out/
+
+# Схемы, нарисованные в редакторе picher (веб-интерфейс)
+picher/schemes/

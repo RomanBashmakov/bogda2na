@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>picher — рисовалка схем плетения</title>
+<style>
+:root {
+  --ink:#1d2433; --muted:#6b7280; --line:#d9dee8; --accent:#2e4fd8; --bg:#f6f7fb;
+}
+* { box-sizing:border-box; }
+body { margin:0 auto; padding:18px 20px 50px; max-width:1280px;
+  font:15px/1.45 system-ui,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
+header h1 { margin:0 0 4px; font-size:22px; }
+.hint { color:var(--muted); margin:0 0 14px; }
+.meta { color:var(--muted); font-size:12.5px; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; background:#fff;
+  border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:12px; }
+.bar label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
+#scheme-name { width:180px; font:inherit; padding:6px 9px; border:1px solid var(--line); border-radius:8px; }
+button { font:inherit; border:none; border-radius:8px; cursor:pointer; }
+button:disabled { opacity:.5; cursor:default; }
+.primary { background:var(--accent); color:#fff; font-weight:600; padding:8px 18px; }
+.minor { background:#eceff5; color:var(--ink); padding:7px 12px; }
+.flag { color:#b3261e; opacity:0; font-size:17px; }
+.flag.on { opacity:1; }
+.layout { display:flex; gap:12px; align-items:flex-start; }
+aside { width:302px; flex:0 0 302px; background:#fff; border:1px solid var(--line);
+  border-radius:10px; padding:12px 14px; max-height:calc(100vh - 210px); overflow-y:auto; }
+aside section { border-bottom:1px solid var(--line); padding:10px 0 12px; }
+aside section:last-child { border-bottom:none; }
+aside h2 { font-size:14.5px; margin:0 0 8px; }
+aside label { display:flex; flex-direction:column; gap:3px; font-size:12.5px; color:var(--muted); margin-bottom:6px; }
+aside input, aside select { font:inherit; padding:5px 8px; border:1px solid var(--line);
+  border-radius:7px; background:#fff; color:var(--ink); width:100%; }
+.pair { display:flex; gap:8px; align-items:end; }
+.pair label { flex:1; }
+.chk { flex-direction:row!important; align-items:center; gap:6px!important;
+  color:var(--ink)!important; font-size:13.5px!important; cursor:pointer; }
+.chk input { width:auto!important; }
+.tools { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+.tool-btn { background:#eceff5; color:var(--ink); padding:7px 6px; font-size:13px; text-align:left; }
+.tool-btn.active { background:var(--accent); color:#fff; font-weight:600; }
+aside > section > button { width:100%; margin-top:6px; }
+.pair > button { width:auto; margin-top:0; }
+#palette { display:flex; flex-direction:column; gap:4px; margin:6px 0; }
+.prow { display:flex; align-items:center; gap:5px; padding:2px 4px; border-radius:7px;
+  border:1px solid transparent; cursor:pointer; }
+.prow.cur { border-color:var(--accent); background:#eef1fd; }
+.pnum { font-size:12px; color:var(--muted); width:26px; flex:none; }
+.prow input[type="color"] { width:30px; height:26px; padding:1px; flex:none;
+  border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
+.pname { font-size:12.5px; min-width:0; }
+.pcount { font-size:11.5px; color:var(--muted); width:38px; flex:none; text-align:right; }
+.pdel { background:none; color:#b3261e; padding:2px 5px; flex:none; }
+.zoomrow { align-items:center; margin-top:6px; }
+.zoomrow .meta { flex:1; text-align:center; }
+main { flex:1; min-width:0; }
+#canvas-wrap { overflow:auto; max-height:calc(100vh - 260px); background:#fff;
+  border:1px solid var(--line); border-radius:10px; padding:8px; }
+#grid { display:block; touch-action:none; cursor:cell; }
+#status { margin-top:6px; min-height:18px; }
+#server-list { display:flex; flex-direction:column; gap:4px; margin:6px 0; }
+.srow { display:flex; align-items:center; gap:8px; }
+.sname { font-weight:600; font-size:13.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.srow button { background:#eceff5; padding:4px 10px; font-size:12.5px; }
+.srow .del { background:none; color:#b3261e; }
+footer { margin-top:14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>picher — рисовалка схем плетения</h1>
+  <p class="hint">Клетка = бисерина, № в клетке = коробочка с бисером этого цвета.
+     Рисуй мышью (кисть тянется), сохраняй на сервер или в файл JSON.
+     <a href="/">← к генераторам</a></p>
+</header>
+
+<div class="bar">
+  <label>Имя схемы <input id="scheme-name" placeholder="moya_shema" spellcheck="false"></label>
+  <button id="btn-save" class="primary" title="Ctrl+S">Сохранить на сервер</button>
+  <button id="btn-export" class="minor">Экспорт JSON</button>
+  <button id="btn-import" class="minor">Импорт JSON</button>
+  <input type="file" id="file-import" accept=".json,application/json" hidden>
+  <span id="dirty-flag" class="flag" title="есть несохранённые изменения">●</span>
+  <span id="totals" class="meta"></span>
+</div>
+
+<div class="layout">
+<aside>
+  <section>
+    <h2>Новая схема</h2>
+    <label>Пресет (размер и палитра) <select id="new-preset"></select></label>
+    <div class="pair">
+      <label>Колонок <input id="new-cols" type="number" min="1" max="2000" value="42"></label>
+      <label>Рядов <input id="new-rows" type="number" min="1" max="500" value="10"></label>
+    </div>
+    <button id="btn-new" class="minor">Создать новую</button>
+  </section>
+
+  <section>
+    <h2>Инструменты</h2>
+    <div class="tools">
+      <button class="tool-btn active" data-tool="brush" title="клик и протяжка — рисовать выбранным цветом">✏ Кисть</button>
+      <button class="tool-btn" data-tool="eraser" title="клик и протяжка — стереть в пустую клетку">🧽 Ластик</button>
+      <button class="tool-btn" data-tool="fill" title="залить связную область выбранным цветом">🪣 Заливка</button>
+      <button class="tool-btn" data-tool="line" title="линия от точки к точке">╱ Линия</button>
+      <button class="tool-btn" data-tool="rect" title="прямоугольник">▭ Прямоуг.</button>
+      <button class="tool-btn" data-tool="ellipse" title="овал">◯ Овал</button>
+      <button class="tool-btn" data-tool="select" title="выделить прямоугольник — раппорт для повтора">▣ Выделение</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="fill-shapes"> заливать прям-к/овал</label>
+    <div class="pair">
+      <button id="btn-undo" class="minor" title="Ctrl+Z">↩ Отмена</button>
+      <button id="btn-redo" class="minor" title="Ctrl+Shift+Z">↪ Повтор</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Палитра · коробочки</h2>
+    <p class="meta">Клик по строке — выбрать цвет для рисования. №0 — цвет фона.</p>
+    <div id="palette"></div>
+    <button id="btn-add-color" class="minor">+ цвет</button>
+  </section>
+
+  <section>
+    <h2>Симметрия</h2>
+    <label class="chk"><input type="checkbox" id="sym-x"> зеркало ←→ (относительно центра)</label>
+    <label class="chk"><input type="checkbox" id="sym-y"> зеркало ↑↓ (относительно центра)</label>
+  </section>
+
+  <section>
+    <h2>Раппорт</h2>
+    <p id="sel-info" class="meta">нет выделения</p>
+    <button id="btn-repeat" class="minor" disabled
+      title="выделенный блок копируется вправо до конца схемы, последний неполный повтор обрезается">Повторить до конца →</button>
+    <button id="btn-desel" class="minor" disabled>Снять выделение (Esc)</button>
+  </section>
+
+  <section>
+    <h2>Сетка</h2>
+    <div class="pair">
+      <label>Колонок <input id="size-cols" type="number" min="1" max="2000"></label>
+      <label>Рядов <input id="size-rows" type="number" min="1" max="500"></label>
+    </div>
+    <button id="btn-apply-size" class="minor">Применить размер (обрежет / добавит пустое)</button>
+    <button id="btn-fill-bg" class="minor">Пустое → фон №0</button>
+    <label class="chk"><input type="checkbox" id="show-nums" checked> номера коробочек в клетках</label>
+    <div class="pair zoomrow">
+      <button id="zoom-out" class="minor" title="мелче">−</button>
+      <span id="zoom-val" class="meta">18 px</span>
+      <button id="zoom-in" class="minor" title="крупнее">+</button>
+      <button id="zoom-fit" class="minor">по ширине</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Схемы на сервере</h2>
+    <div id="server-list"></div>
+    <button id="btn-refresh" class="minor">Обновить список</button>
+  </section>
+</aside>
+
+<main>
+  <div id="canvas-wrap"><canvas id="grid"></canvas></div>
+  <div id="status" class="meta"></div>
+</main>
+</div>
+
+<footer class="meta">Экспорт в печатную A4-схему (кружки, легенда) — отдельный шаг, будет позже.
+Файл схемы — JSON: {cols, rows, colors[{name,hex}], cells[]}.</footer>
+
+<script>
+"use strict";
+// --- состояние ---
+
+const DEFAULT_COLORS = [
+  { name: "Чёрный (фон)", hex: "#141414" },
+  { name: "Пурпурный",    hex: "#b23ad6" },
+  { name: "Жёлтый",       hex: "#f5c518" },
+  { name: "Белый",        hex: "#f4f4f4" },
+  { name: "Голубой",      hex: "#3fb8e8" },
+  { name: "Синий",        hex: "#2e4fd8" },
+];
+
+const S = {
+  name: "", cols: 42, rows: 10,
+  colors: DEFAULT_COLORS.map(c => ({ ...c })),
+  cells: [], sel: null, dirty: false,
+};
+
+let zoom = 18;                 // px на клетку
+let showNums = true;
+let tool = "brush";
+let colorIdx = 0;
+let symX = false, symY = false;
+let fillShapes = false;
+let presets = [];
+const undoStack = [];
+const redoStack = [];
+const PAD = 22;                // поле под линейки, px
+const TOOL_NAMES = {
+  brush: "кисть", eraser: "ластик", fill: "заливка", line: "линия",
+  rect: "прямоугольник", ellipse: "овал", select: "выделение",
+};
+
+const cv = () => document.getElementById("grid");
+
+function emptyCells(cols, rows) { return new Array(cols * rows).fill(-1); }
+function idx(x, y) { return y * S.cols + x; }
+function inGrid(x, y) { return x >= 0 && y >= 0 && x < S.cols && y < S.rows; }
+function setCell(x, y, v) { if (inGrid(x, y)) S.cells[idx(x, y)] = v; }
+
+function mirrorPoints(x, y) {
+  const pts = [[x, y]];
+  const mx = S.cols - 1 - x, my = S.rows - 1 - y;
+  if (symX) pts.push([mx, y]);
+  if (symY) pts.push([x, my]);
+  if (symX && symY) pts.push([mx, my]);
+  return pts;
+}
+// поставить клетку с учётом зеркал
+function put(x, y, v) { for (const [px, py] of mirrorPoints(x, y)) setCell(px, py, v); }
+
+function normHex(h) {
+  let m = /^#([0-9a-fA-F]{6})$/.exec(String(h || "").trim());
+  if (m) return "#" + m[1].toLowerCase();
+  m = /^#([0-9a-fA-F]{3})$/.exec(String(h || "").trim());
+  if (m) return "#" + m[1].split("").map(ch => ch + ch).join("").toLowerCase();
+  return "#000000";
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function clampInt(v, lo, hi, dflt) {
+  const n = parseInt(String(v).trim(), 10);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(hi, Math.max(lo, n));
+}
+
+function fmtDate(ts) { return new Date(ts * 1000).toLocaleString("ru-RU"); }
+
+// --- отмена / повтор (снимок — вся сетка; палитра не откатывается) ---
+
+function snapshot() { return { cols: S.cols, rows: S.rows, cells: S.cells.slice() }; }
+
+function pushUndo() {
+  undoStack.push(snapshot());
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function restore(sn) {
+  S.cols = sn.cols; S.rows = sn.rows; S.cells = sn.cells.slice(); S.sel = null;
+  afterGridChange();
+}
+
+function doUndo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  restore(undoStack.pop());
+}
+
+function doRedo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  restore(redoStack.pop());
+}
+
+// --- серверное API ---
+
+async function api(url, body) {
+  const opt = body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  const res = await fetch(url, opt);
+  return res.json();
+}
+
+function schemeData() {
+  return {
+    version: 1, cols: S.cols, rows: S.rows,
+    colors: S.colors.map(c => ({ name: c.name, hex: c.hex })),
+    cells: S.cells.slice(),
+  };
+}
+
+function applyData(d) {
+  S.cols = d.cols; S.rows = d.rows;
+  S.colors = d.colors.map(c => ({ name: String(c.name || ""), hex: normHex(c.hex) }));
+  S.cells = d.cells.slice();
+  S.sel = null;
+  if (colorIdx >= S.colors.length) colorIdx = 0;
+  undoStack.length = 0;
+  redoStack.length = 0;
+  afterGridChange();
+  renderPalette();
+}
+
+// --- палитра ---
+
+function renderPalette() {
+  const box = document.getElementById("palette");
+  box.innerHTML = "";
+  S.colors.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = "prow" + (i === colorIdx ? " cur" : "");
+    row.title = i === 0 ? "№0 — цвет фона (клик — выбрать)" : "клик — выбрать для рисования";
+    const num = document.createElement("span");
+    num.className = "pnum";
+    num.textContent = "№" + i;
+    const col = document.createElement("input");
+    col.type = "color";
+    col.value = normHex(c.hex);
+    col.addEventListener("input", () => {
+      c.hex = col.value;
+      markDirty(true);
+      redraw();
+    });
+    const nm = document.createElement("input");
+    nm.type = "text";
+    nm.className = "pname";
+    nm.value = c.name;
+    nm.spellcheck = false;
+    nm.addEventListener("change", () => { c.name = nm.value; markDirty(true); });
+    const cnt = document.createElement("span");
+    cnt.className = "pcount";
+    cnt.dataset.i = i;
+    cnt.title = "бисерин этого цвета";
+    const del = document.createElement("button");
+    del.className = "pdel";
+    del.textContent = "✕";
+    del.title = "удалить цвет";
+    del.addEventListener("click", () => delColor(i));
+    row.append(num, col, nm, cnt, del);
+    row.addEventListener("click", (ev) => {
+      if (ev.target === col || ev.target === nm || ev.target === del) return;
+      colorIdx = i;
+      renderPalette();
+      updateStatus();
+    });
+    box.appendChild(row);
+  });
+}
+
+function delColor(i) {
+  if (i === 0) { alert("№0 — цвет фона, его удалить нельзя."); return; }
+  const used = S.cells.filter(v => v === i).length;
+  const what = `Удалить цвет №${i} «${S.colors[i].name}»?` +
+    (used ? `\nБисерин этого цвета: ${used} — клетки станут пустыми, номера остальных цветов сдвинутся.` : "");
+  if (!confirm(what)) return;
+  pushUndo();
+  S.cells = S.cells.map(v => (v === i ? -1 : (v > i ? v - 1 : v)));
+  S.colors.splice(i, 1);
+  if (colorIdx >= S.colors.length) colorIdx = S.colors.length - 1;
+  renderPalette();
+  redraw();
+  updateCounts();
+}
+
+function updateCounts() {
+  const counts = new Array(S.colors.length).fill(0);
+  let empty = 0;
+  for (const v of S.cells) {
+    if (v >= 0 && v < counts.length) counts[v]++;
+    else empty++;
+  }
+  document.querySelectorAll("#palette .pcount").forEach(el => {
+    el.textContent = counts[+el.dataset.i] || 0;
+  });
+  document.getElementById("totals").textContent =
+    `${S.cols}×${S.rows} · бисерин ${S.cells.length - empty} · пусто ${empty}`;
+  updateStatus();
+}
+
+function updateStatus(hover) {
+  const parts = [`инструмент: ${TOOL_NAMES[tool]}`];
+  const c = S.colors[colorIdx];
+  parts.push(`цвет: №${colorIdx}${c ? " " + c.name : ""}`);
+  if (hover) parts.push(`клетка: кол. ${hover.x + 1}, ряд ${hover.y + 1}`);
+  document.getElementById("status").textContent = parts.join(" · ");
+}
+
+function updateSelPanel() {
+  const info = document.getElementById("sel-info");
+  const rep = document.getElementById("btn-repeat");
+  const desel = document.getElementById("btn-desel");
+  if (S.sel) {
+    info.textContent =
+      `выделено ${S.sel.w}×${S.sel.h} (кол. ${S.sel.x + 1}, ряд ${S.sel.y + 1})`;
+    rep.disabled = false;
+    desel.disabled = false;
+  } else {
+    info.textContent = "нет выделения";
+    rep.disabled = true;
+    desel.disabled = true;
+  }
+}
+
+function markDirty(d) {
+  S.dirty = d;
+  document.getElementById("dirty-flag").classList.toggle("on", d);
+  document.title = (d ? "● " : "") + (S.name || "без имени") + " — picher";
+}
+
+function afterGridChange() {
+  document.getElementById("size-cols").value = S.cols;
+  document.getElementById("size-rows").value = S.rows;
+  markDirty(true);
+  redraw();
+  updateCounts();
+  updateSelPanel();
+}
+
+// --- отрисовка ---
+
+function textOn(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 145 ? "#1d2433" : "#ffffff";
+}
+
+function strokeLine(ctx, x0, y0, x1, y1) {
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+}
+
+function redraw() {
+  const c = cv();
+  const ctx = c.getContext("2d");
+  const w = S.cols * zoom, h = S.rows * zoom;
+  c.width = w + PAD + 2;
+  c.height = h + PAD + 2;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  // клетки
+  for (let y = 0; y < S.rows; y++) {
+    for (let x = 0; x < S.cols; x++) {
+      const v = S.cells[idx(x, y)];
+      const px = PAD + x * zoom, py = PAD + y * zoom;
+      ctx.fillStyle = v >= 0 && S.colors[v] ? S.colors[v].hex : "#fbfcfe";
+      ctx.fillRect(px, py, zoom, zoom);
+      if (showNums && zoom >= 13 && v >= 0 && S.colors[v]) {
+        ctx.fillStyle = textOn(S.colors[v].hex);
+        ctx.font = `bold ${Math.max(8, Math.floor(zoom * 0.5))}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(v), px + zoom / 2, py + zoom / 2 + 1);
+      }
+    }
+  }
+  // сетка (каждая 10-я — темнее)
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= S.cols; x++) {
+    ctx.strokeStyle = x % 10 === 0 ? "#00000042" : "#00000018";
+    strokeLine(ctx, PAD + x * zoom + 0.5, PAD, PAD + x * zoom + 0.5, PAD + h);
+  }
+  for (let y = 0; y <= S.rows; y++) {
+    ctx.strokeStyle = y % 10 === 0 ? "#00000042" : "#00000018";
+    strokeLine(ctx, PAD, PAD + y * zoom + 0.5, PAD + w, PAD + y * zoom + 0.5);
+  }
+  // внешняя рамка
+  ctx.strokeStyle = "#1d2433";
+  ctx.strokeRect(PAD + 0.5, PAD + 0.5, w, h);
+  // линейки: номера колонок каждые 10, номера рядов
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "10px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  for (let x = 10; x <= S.cols; x += 10)
+    ctx.fillText(String(x), PAD + (x - 1) * zoom + 1, 6);
+  if (zoom >= 9) {
+    const step = S.rows <= 60 ? 1 : 5;
+    for (let y = step; y <= S.rows; y += step)
+      ctx.fillText(String(y), 4, PAD + (y - 1) * zoom + zoom / 2 - 5);
+  }
+  drawOverlay(ctx);
+}
+
+function drawOverlay(ctx) {
+  // превью фигуры (полупрозрачные клетки, с зеркалами)
+  if (drag && (drag.mode === "line" || drag.mode === "rect" || drag.mode === "ellipse")) {
+    ctx.fillStyle = "rgba(46,79,216,0.45)";
+    for (const [x, y] of shapeCells(drag.mode, drag.x0, drag.y0, drag.x1, drag.y1, fillShapes))
+      for (const [px, py] of mirrorPoints(x, y))
+        if (inGrid(px, py))
+          ctx.fillRect(PAD + px * zoom, PAD + py * zoom, zoom, zoom);
+  }
+  // превью выделения
+  if (drag && drag.mode === "select") {
+    ctx.save();
+    ctx.strokeStyle = "#2e4fd8";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    const ax = Math.min(drag.x0, drag.x1), ay = Math.min(drag.y0, drag.y1);
+    const bw = (Math.abs(drag.x1 - drag.x0) + 1) * zoom, bh = (Math.abs(drag.y1 - drag.y0) + 1) * zoom;
+    ctx.strokeRect(PAD + ax * zoom + 1, PAD + ay * zoom + 1, bw - 2, bh - 2);
+    ctx.restore();
+  }
+  // готовое выделение (раппорт)
+  if (S.sel) {
+    ctx.save();
+    ctx.strokeStyle = "#2e4fd8";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(PAD + S.sel.x * zoom + 1, PAD + S.sel.y * zoom + 1,
+      S.sel.w * zoom - 2, S.sel.h * zoom - 2);
+    ctx.restore();
+  }
+}
+
+// --- геометрия ---
+
+function bresenham(x0, y0, x1, y1) {
+  const pts = [];
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  for (;;) {
+    pts.push([x0, y0]);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 < dx) { err += dx; y0 += sy; }
+  }
+  return pts;
+}
+
+function shapeCells(mode, x0, y0, x1, y1, filled) {
+  const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
+  const ay = Math.min(y0, y1), by = Math.max(y0, y1);
+  const pts = [];
+  if (mode === "line") return bresenham(x0, y0, x1, y1);
+  if (mode === "rect") {
+    for (let y = ay; y <= by; y++)
+      for (let x = ax; x <= bx; x++)
+        if (filled || x === ax || x === bx || y === ay || y === by) pts.push([x, y]);
+    return pts;
+  }
+  if (mode === "ellipse") {
+    const cx = (ax + bx) / 2, cy = (ay + by) / 2;
+    const a = (bx - ax) / 2, b = (by - ay) / 2;
+    if (filled) {
+      if (a < 1 || b < 1) return bresenham(ax, ay, bx, by);
+      for (let y = ay; y <= by; y++) {
+        const dy = (y - cy) / b;
+        const hw = a * Math.sqrt(Math.max(0, 1 - dy * dy));
+        const xa = Math.round(cx - hw), xb = Math.round(cx + hw);
+        for (let x = xa; x <= xb; x++) pts.push([x, y]);
+      }
+    } else {
+      const steps = Math.max(24, Math.round((a + b) * 2));
+      for (let i = 0; i < steps; i++) {
+        const t = (i / steps) * 2 * Math.PI;
+        pts.push([Math.round(cx + a * Math.cos(t)), Math.round(cy + b * Math.sin(t))]);
+      }
+    }
+    return pts;
+  }
+  return pts;
+}
+
+// --- мышь ---
+
+let drag = null;    // {mode, value} | {mode, x0, y0, x1, y1}
+let hover = null;
+
+function posFromEvent(ev) {
+  const r = cv().getBoundingClientRect();
+  return {
+    x: Math.floor((ev.clientX - r.left - PAD) / zoom),
+    y: Math.floor((ev.clientY - r.top - PAD) / zoom),
+  };
+}
+
+function paintAt(p) { put(p.x, p.y, drag.value); }
+
+function fillAt(p) {
+  // заливка каждой связной области из исходной и зеркальных точек
+  const seeds = mirrorPoints(p.x, p.y).filter(([x, y]) => inGrid(x, y));
+  for (const [sx, sy] of seeds) {
+    const target = S.cells[idx(sx, sy)];
+    if (target === colorIdx) continue;
+    const q = [[sx, sy]];
+    while (q.length) {
+      const [x, y] = q.pop();
+      if (!inGrid(x, y) || S.cells[idx(x, y)] !== target) continue;
+      S.cells[idx(x, y)] = colorIdx;
+      q.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+  }
+}
+
+cv().addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
+  const p = posFromEvent(ev);
+  if (!inGrid(p.x, p.y)) return;
+  cv().setPointerCapture(ev.pointerId);
+  if (tool === "brush" || tool === "eraser") {
+    pushUndo();
+    drag = { mode: "paint", value: tool === "brush" ? colorIdx : -1 };
+    paintAt(p);
+    redraw();
+    updateCounts();
+  } else if (tool === "fill") {
+    pushUndo();
+    fillAt(p);
+    redraw();
+    updateCounts();
+  } else {
+    drag = { mode: tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    redraw();
+  }
+});
+
+cv().addEventListener("pointermove", (ev) => {
+  const p = posFromEvent(ev);
+  if (drag) {
+    if (drag.mode === "paint") {
+      paintAt(p);
+      updateCounts();
+    } else {
+      drag.x1 = Math.min(Math.max(p.x, 0), S.cols - 1);
+      drag.y1 = Math.min(Math.max(p.y, 0), S.rows - 1);
+    }
+    redraw();
+  }
+  hover = inGrid(p.x, p.y) ? p : null;
+  updateStatus(hover);
+});
+
+cv().addEventListener("pointerup", () => {
+  if (!drag) return;
+  if (drag.mode === "paint") { drag = null; return; }
+  if (drag.mode === "select") {
+    const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1);
+    const w = Math.abs(drag.x1 - drag.x0) + 1, h = Math.abs(drag.y1 - drag.y0) + 1;
+    S.sel = { x, y, w, h };
+    drag = null;
+    redraw();
+    updateSelPanel();
+    return;
+  }
+  pushUndo();
+  for (const [x, y] of shapeCells(drag.mode, drag.x0, drag.y0, drag.x1, drag.y1, fillShapes))
+    put(x, y, colorIdx);
+  drag = null;
+  redraw();
+  updateCounts();
+});
+
+cv().addEventListener("pointerleave", () => {
+  hover = null;
+  updateStatus(null);
+});
+
+// --- действия над сеткой ---
+
+function repeatToEnd() {
+  if (!S.sel) return;
+  pushUndo();
+  const { x, y, w, h } = S.sel;
+  for (let ty = y; ty < y + h; ty++)
+    for (let tx = x; tx < S.cols; tx++)
+      S.cells[ty * S.cols + tx] = S.cells[ty * S.cols + (x + ((tx - x) % w))];
+  redraw();
+  updateCounts();
+}
+
+function fillEmptyWithBg() {
+  if (!S.cells.includes(-1)) return;
+  pushUndo();
+  for (let i = 0; i < S.cells.length; i++)
+    if (S.cells[i] === -1) S.cells[i] = 0;
+  redraw();
+  updateCounts();
+}
+
+function applySize() {
+  const cols = clampInt(document.getElementById("size-cols").value, 1, 2000, S.cols);
+  const rows = clampInt(document.getElementById("size-rows").value, 1, 500, S.rows);
+  if (cols === S.cols && rows === S.rows) return;
+  pushUndo();
+  const next = emptyCells(cols, rows);
+  for (let y = 0; y < Math.min(rows, S.rows); y++)
+    for (let x = 0; x < Math.min(cols, S.cols); x++)
+      next[y * cols + x] = S.cells[y * S.cols + x];
+  S.cols = cols;
+  S.rows = rows;
+  S.cells = next;
+  S.sel = null;
+  afterGridChange();
+}
+
+function setZoom(z) {
+  zoom = Math.min(48, Math.max(4, z));
+  document.getElementById("zoom-val").textContent = zoom + " px";
+  redraw();
+}
+
+function fitWidth() {
+  const wrap = document.getElementById("canvas-wrap");
+  setZoom(Math.floor((wrap.clientWidth - PAD - 24) / S.cols));
+}
+
+// --- сервер: список, сохранение, открытие, удаление ---
+
+async function refreshServerList() {
+  const box = document.getElementById("server-list");
+  try {
+    const r = await api("/picher/api/schemes");
+    const list = r.schemes || [];
+    box.innerHTML = "";
+    if (!list.length) {
+      box.innerHTML = '<p class="meta">Пока ничего не сохранено.</p>';
+      return;
+    }
+    for (const it of list) {
+      const row = document.createElement("div");
+      row.className = "srow";
+      const nm = document.createElement("span");
+      nm.className = "sname";
+      nm.textContent = it.name;
+      nm.title = it.name;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = fmtDate(it.mtime);
+      const open = document.createElement("button");
+      open.textContent = "Открыть";
+      open.addEventListener("click", () => loadScheme(it.name));
+      const del = document.createElement("button");
+      del.className = "del";
+      del.textContent = "Удалить";
+      del.addEventListener("click", async () => {
+        if (!confirm(`Удалить схему «${it.name}» с сервера?`)) return;
+        const r2 = await api("/picher/api/delete", { name: it.name });
+        if (!r2.ok) alert(r2.error || "Не удалось удалить");
+        refreshServerList();
+      });
+      row.append(nm, meta, open, del);
+      box.appendChild(row);
+    }
+  } catch (e) {
+    box.innerHTML = '<p class="meta">Сервер недоступен: ' + esc(String(e)) + "</p>";
+  }
+}
+
+async function saveScheme() {
+  const nameEl = document.getElementById("scheme-name");
+  const name = nameEl.value.trim();
+  if (!name) {
+    alert("Укажите имя схемы (латиница/кириллица, цифры, . _ -).");
+    nameEl.focus();
+    return;
+  }
+  try {
+    const r = await api("/picher/api/save", { name, data: schemeData() });
+    if (!r.ok) { alert(r.error || "Не удалось сохранить"); return; }
+    S.name = r.name || name;
+    nameEl.value = S.name;
+    markDirty(false);
+    refreshServerList();
+  } catch (e) {
+    alert("Сервер недоступен: " + e);
+  }
+}
+
+async function loadScheme(name) {
+  if (S.dirty && !confirm("Есть несохранённые изменения — открыть другую схему и потерять их?"))
+    return;
+  try {
+    const r = await api("/picher/api/load", { name });
+    if (!r.ok) { alert(r.error || "Не удалось открыть"); return; }
+    applyData(r.data);
+    S.name = name;
+    document.getElementById("scheme-name").value = name;
+    markDirty(false);
+  } catch (e) {
+    alert("Сервер недоступен: " + e);
+  }
+}
+
+// --- файлы JSON ---
+
+function exportJson() {
+  const name = document.getElementById("scheme-name").value.trim();
+  const data = Object.assign(schemeData(), { name });
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (name || "shema") + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importJson(file) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const d = JSON.parse(rd.result);
+      if (!(d && Number.isInteger(d.cols) && Number.isInteger(d.rows) &&
+            Array.isArray(d.colors) && d.colors.length &&
+            Array.isArray(d.cells) && d.cells.length === d.cols * d.rows))
+        throw new Error("это не файл схемы picher (нужны cols/rows/colors/cells)");
+      applyData(d);
+      S.name = "";
+      document.getElementById("scheme-name").value = typeof d.name === "string" ? d.name : "";
+      markDirty(true);
+    } catch (e) {
+      alert("Импорт не удался: " + e.message);
+    }
+  };
+  rd.readAsText(file);
+}
+
+// --- новая схема и пресеты ---
+
+function presetByName(n) {
+  return presets.find(p => p.name === n) || null;
+}
+
+function applyPresetToForm() {
+  const p = presetByName(document.getElementById("new-preset").value);
+  document.getElementById("new-cols").value = p && p.cols ? p.cols : 42;
+  document.getElementById("new-rows").value = p && p.rows ? p.rows : 10;
+}
+
+function fillNewForm() {
+  const sel = document.getElementById("new-preset");
+  sel.innerHTML = '<option value="">— с нуля (свои размеры) —</option>' +
+    presets.map(p => `<option>${esc(p.name)}</option>`).join("");
+  applyPresetToForm();
+}
+
+function newScheme(ask) {
+  if (ask && S.dirty &&
+      !confirm("Есть несохранённые изменения — создать новую схему и потерять их?"))
+    return;
+  const p = presetByName(document.getElementById("new-preset").value);
+  const cols = clampInt(document.getElementById("new-cols").value, 1, 2000, 42);
+  const rows = clampInt(document.getElementById("new-rows").value, 1, 500, 10);
+  const colors = p && p.colors && p.colors.length
+    ? p.colors.map(c => ({ name: String(c.name || ""), hex: normHex(c.hex) }))
+    : DEFAULT_COLORS.map(c => ({ ...c }));
+  S.cols = cols;
+  S.rows = rows;
+  S.colors = colors;
+  S.cells = emptyCells(cols, rows);
+  S.sel = null;
+  S.name = "";
+  colorIdx = 0;
+  undoStack.length = 0;
+  redoStack.length = 0;
+  document.getElementById("scheme-name").value = "";
+  renderPalette();
+  afterGridChange();
+  markDirty(false);
+  fitWidth();
+}
+
+// --- привязка кнопок ---
+
+function wire() {
+  document.querySelectorAll(".tool-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      tool = b.dataset.tool;
+      document.querySelectorAll(".tool-btn").forEach(x => x.classList.toggle("active", x === b));
+      cv().style.cursor = tool === "select" ? "crosshair" : "cell";
+      updateStatus();
+    });
+  });
+  document.getElementById("fill-shapes").addEventListener("change", ev => { fillShapes = ev.target.checked; });
+  document.getElementById("sym-x").addEventListener("change", ev => { symX = ev.target.checked; redraw(); });
+  document.getElementById("sym-y").addEventListener("change", ev => { symY = ev.target.checked; redraw(); });
+  document.getElementById("show-nums").addEventListener("change", ev => { showNums = ev.target.checked; redraw(); });
+  document.getElementById("btn-undo").addEventListener("click", doUndo);
+  document.getElementById("btn-redo").addEventListener("click", doRedo);
+  document.getElementById("btn-add-color").addEventListener("click", () => {
+    S.colors.push({ name: "Цвет " + S.colors.length, hex: "#e03131" });
+    markDirty(true);
+    renderPalette();
+    updateCounts();
+    redraw();
+  });
+  document.getElementById("btn-repeat").addEventListener("click", repeatToEnd);
+  document.getElementById("btn-desel").addEventListener("click", () => {
+    S.sel = null;
+    redraw();
+    updateSelPanel();
+  });
+  document.getElementById("btn-fill-bg").addEventListener("click", fillEmptyWithBg);
+  document.getElementById("btn-apply-size").addEventListener("click", applySize);
+  document.getElementById("zoom-out").addEventListener("click", () => setZoom(zoom - 2));
+  document.getElementById("zoom-in").addEventListener("click", () => setZoom(zoom + 2));
+  document.getElementById("zoom-fit").addEventListener("click", fitWidth);
+  document.getElementById("btn-save").addEventListener("click", saveScheme);
+  document.getElementById("btn-export").addEventListener("click", exportJson);
+  document.getElementById("btn-import").addEventListener("click", () =>
+    document.getElementById("file-import").click());
+  document.getElementById("file-import").addEventListener("change", (ev) => {
+    if (ev.target.files.length) {
+      if (!S.dirty || confirm("Есть несохранённые изменения — импортировать и потерять их?"))
+        importJson(ev.target.files[0]);
+    }
+    ev.target.value = "";
+  });
+  document.getElementById("btn-new").addEventListener("click", () => newScheme(true));
+  document.getElementById("new-preset").addEventListener("change", applyPresetToForm);
+  document.getElementById("btn-refresh").addEventListener("click", refreshServerList);
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && S.sel) {
+      S.sel = null;
+      redraw();
+      updateSelPanel();
+      return;
+    }
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    const k = ev.key.toLowerCase();
+    if (k === "z" && !ev.shiftKey) { ev.preventDefault(); doUndo(); }
+    else if ((k === "z" && ev.shiftKey) || k === "y") { ev.preventDefault(); doRedo(); }
+    else if (k === "s") { ev.preventDefault(); saveScheme(); }
+  });
+
+  window.addEventListener("beforeunload", (ev) => {
+    if (S.dirty) { ev.preventDefault(); ev.returnValue = ""; }
+  });
+}
+
+// --- запуск ---
+
+async function init() {
+  wire();
+  try {
+    const r = await api("/picher/api/presets");
+    presets = (r && r.presets) || [];
+  } catch (e) {
+    presets = [];
+  }
+  fillNewForm();
+  newScheme(false);
+  refreshServerList();
+}
+
+init();
+
+
+
+
+
+
+
+</script>
+</body>
+</html>
+

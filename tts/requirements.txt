@@ -1,0 +1,6 @@
+# Озвучка книг (Silero TTS). На Linux колесо torch с PyPI уже с поддержкой CUDA;
+# без GPU ставится и работает то же самое, только на CPU.
+torch>=2.1
+numpy
+omegaconf        # нужна коду Silero в torch.hub
+imageio-ffmpeg   # запасной бинарь ffmpeg, если системного нет
