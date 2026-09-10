@@ -57,6 +57,13 @@ aside > section > button { width:100%; margin-top:6px; }
 .pdel { background:none; color:#b3261e; padding:2px 5px; flex:none; }
 .zoomrow { align-items:center; margin-top:6px; }
 .zoomrow .meta { flex:1; text-align:center; }
+dialog { border:none; border-radius:12px; padding:18px 20px; width:340px;
+  font:inherit; color:var(--ink); }
+dialog::backdrop { background:#1d243355; }
+dialog label { display:flex; flex-direction:column; gap:3px; font-size:12.5px;
+  color:var(--muted); margin-bottom:8px; }
+dialog input { font:inherit; padding:6px 9px; border:1px solid var(--line);
+  border-radius:7px; background:#fff; color:var(--ink); }
 main { flex:1; min-width:0; }
 #canvas-wrap { overflow:auto; max-height:calc(100vh - 260px); background:#fff;
   border:1px solid var(--line); border-radius:10px; padding:8px; }
@@ -83,6 +90,7 @@ footer { margin-top:14px; }
   <button id="btn-save" class="primary" title="Ctrl+S">Сохранить на сервер</button>
   <button id="btn-export" class="minor">Экспорт JSON</button>
   <button id="btn-import" class="minor">Импорт JSON</button>
+  <button id="btn-print" class="minor" title="печатная A4-схема с кружками и легендой">🖨 Распечатать A4</button>
   <input type="file" id="file-import" accept=".json,application/json" hidden>
   <span id="dirty-flag" class="flag" title="есть несохранённые изменения">●</span>
   <span id="totals" class="meta"></span>
@@ -169,8 +177,21 @@ footer { margin-top:14px; }
 </main>
 </div>
 
-<footer class="meta">Экспорт в печатную A4-схему (кружки, легенда) — отдельный шаг, будет позже.
-Файл схемы — JSON: {cols, rows, colors[{name,hex}], cells[]}.</footer>
+<footer class="meta">Печать — кнопка «Распечатать A4»: печатная схема (A4, кружки,
+легенда, одноцветные файлы) ложится в picher/out/ и открывается в новой
+вкладке. Файл схемы — JSON: {cols, rows, colors[{name,hex}], cells[]}.</footer>
+
+<dialog id="print-dialog">
+  <h2 style="margin:0 0 6px">Печать A4</h2>
+  <p class="meta" id="pr-info" style="margin:0 0 10px"></p>
+  <label>Заголовок схемы <input id="pr-title" placeholder="имя схемы" spellcheck="false"></label>
+  <label>Шаг сетки, мм <input id="pr-pitch" type="number" step="0.1" min="0.3" value="4.5"></label>
+  <label>Диаметр кружка, мм <input id="pr-circle" type="number" step="0.1" min="0.8" value="3.0"></label>
+  <div class="pair" style="justify-content:flex-end;margin-top:12px">
+    <button id="pr-cancel" class="minor" type="button">Отмена</button>
+    <button id="pr-go" class="primary" type="button">Распечатать</button>
+  </div>
+</dialog>
 
 <script>
 "use strict";
@@ -776,8 +797,8 @@ async function saveScheme() {
   }
 }
 
-async function loadScheme(name) {
-  if (S.dirty && !confirm("Есть несохранённые изменения — открыть другую схему и потерять их?"))
+async function loadScheme(name, force) {
+  if (!force && S.dirty && !confirm("Есть несохранённые изменения — открыть другую схему и потерять их?"))
     return;
   try {
     const r = await api("/picher/api/load", { name });
@@ -822,6 +843,53 @@ function importJson(file) {
     }
   };
   rd.readAsText(file);
+}
+
+// --- печать A4 (picher/render.py через сервер) ---
+
+function openPrintDialog() {
+  const name = document.getElementById("scheme-name").value.trim();
+  if (!name) {
+    alert("Укажите имя схемы: печать идёт из сохранённой на сервере схемы (Ctrl+S — сохранить).");
+    document.getElementById("scheme-name").focus();
+    return;
+  }
+  if (S.dirty && !confirm("Есть несохранённые изменения — напечатается " +
+      "последняя сохранённая версия. Продолжить?"))
+    return;
+  document.getElementById("pr-title").value = name;
+  document.getElementById("pr-info").textContent =
+    `Схема «${name}»: основной файл и одноцветные схемы лягут в picher/out/.`;
+  document.getElementById("print-dialog").showModal();
+}
+
+async function doPrint() {
+  const name = document.getElementById("scheme-name").value.trim();
+  const go = document.getElementById("pr-go");
+  const info = document.getElementById("pr-info");
+  go.disabled = true;
+  info.textContent = "Печатаю…";
+  try {
+    const r = await api("/picher/api/print", {
+      name,
+      title: document.getElementById("pr-title").value.trim() || name,
+      pitch_mm: parseFloat(document.getElementById("pr-pitch").value) || 4.5,
+      circle_d_mm: parseFloat(document.getElementById("pr-circle").value) || 3.0,
+    });
+    if (!r.ok) {
+      alert(r.error || "Не удалось напечатать");
+      info.textContent = "";
+      return;
+    }
+    document.getElementById("print-dialog").close();
+    window.open("/view/picher/" + encodeURIComponent(r.files.main),
+      "_blank", "noopener");
+  } catch (e) {
+    alert("Сервер недоступен: " + e);
+    info.textContent = "";
+  } finally {
+    go.disabled = false;
+  }
 }
 
 // --- новая схема и пресеты ---
@@ -908,6 +976,10 @@ function wire() {
   document.getElementById("btn-export").addEventListener("click", exportJson);
   document.getElementById("btn-import").addEventListener("click", () =>
     document.getElementById("file-import").click());
+  document.getElementById("btn-print").addEventListener("click", openPrintDialog);
+  document.getElementById("pr-cancel").addEventListener("click", () =>
+    document.getElementById("print-dialog").close());
+  document.getElementById("pr-go").addEventListener("click", doPrint);
   document.getElementById("file-import").addEventListener("change", (ev) => {
     if (ev.target.files.length) {
       if (!S.dirty || confirm("Есть несохранённые изменения — импортировать и потерять их?"))
@@ -950,6 +1022,9 @@ async function init() {
   }
   fillNewForm();
   newScheme(false);
+  // /picher?name=схема — открыть схему с сервера (после оцифровки картинки)
+  const want = new URLSearchParams(location.search).get("name");
+  if (want && want.trim()) await loadScheme(want.trim(), true);
   refreshServerList();
 }
 

@@ -78,32 +78,28 @@
     <div class="grid">
       <label>Сколько цветов <input name="colors" type="number" min="2" max="30" value="7"></label>
       <label>Длина, клеток <input name="cols" type="number" min="1" value="200"></label>
-      <label>Заголовок схемы <input name="title"></label>
+      <label>Имя схемы в picher <input name="name" placeholder="имя картинки"></label>
     </div>
-    <details>
-      <summary>Дополнительно (шаг сетки, дизеринг…)</summary>
-      <div class="grid">
-        <label>Шаг сетки, мм <input name="pitch-mm" type="number" step="0.1" min="0"></label>
-        <label>Диаметр кружка, мм <input name="circle-d-mm" type="number" step="0.1" min="0"></label>
-        <label>Имя файла схемы <input name="out" placeholder="out/&lt;имя картинки&gt;.html"></label>
-      </div>
-      <div class="checks">
-        <label><input type="checkbox" name="dither"> дизеринг Флойда—Стейнберга</label>
-        <label><input type="checkbox" name="mirror"> зеркальная схема</label>
-        <label><input type="checkbox" name="no-numbers"> кружки без цифр</label>
-      </div>
-    </details>
-    <button class="run" type="submit">Сгенерировать</button>
+    <div class="checks">
+      <label><input type="checkbox" name="dither"> дизеринг Флойда—Стейнберга</label>
+      <label><input type="checkbox" name="mirror"> зеркальная схема</label>
+    </div>
+    <p class="meta">Картинка оцифровывается в схему редактора picher: правьте её
+       там и печатайте кнопкой «Распечатать A4» (шаг сетки и диаметр кружка
+       задаются при печати).</p>
+    <button class="run" type="submit">Оцифровать → в picher</button>
   </form>
 </section>
 
 <section id="picher" class="panel">
-  <p>«Picher» — редактор схем: рисуешь схему сам (клетка = бисерина,
-     № = коробочка с бисером цвета). Пресеты и палитра правятся на месте,
-     симметрия, выделение-раппорт с повтором до конца, заполнение пустого
-     фоном. Схемы хранятся на сервере в <code>picher/schemes/</code>,
-     плюс экспорт/импорт файла JSON. Печатная A4-схема — отдельный шаг,
-     будет позже.</p>
+  <p>«Picher» — редактор схем: клетка = бисерина, № = коробочка с бисером
+     цвета. Рисуй схему сам или открывай оцифрованную картинку (вкладка
+     «Картинка»). Пресеты и палитра правятся на месте, симметрия,
+     выделение-раппорт с повтором до конца, заполнение пустого фоном.
+     Схемы хранятся на сервере в <code>picher/schemes/</code>, плюс
+     экспорт/импорт файла JSON. Кнопка «Распечатать A4» выпускает печатную
+     схему с кружками и легендой в <code>picher/out/</code> (видна ниже
+     в списке «Готовые схемы»).</p>
   <a class="run link-run" href="/picher" target="_blank" rel="noopener">Открыть редактор →</a>
 </section>
 
