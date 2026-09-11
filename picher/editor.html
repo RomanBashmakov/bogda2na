@@ -57,6 +57,16 @@ aside > section > button { width:100%; margin-top:6px; }
 .pdel { background:none; color:#b3261e; padding:2px 5px; flex:none; }
 .zoomrow { align-items:center; margin-top:6px; }
 .zoomrow .meta { flex:1; text-align:center; }
+.anchors { display:grid; grid-template-columns:repeat(2, 34px); gap:4px; }
+.anchor { position:relative; height:26px; background:#eceff5; border-radius:6px; }
+.anchor::after { content:""; position:absolute; width:7px; height:7px; border-radius:50%; background:#6b7280; }
+.anchor[data-anchor="nw"]::after { left:5px; top:5px; }
+.anchor[data-anchor="ne"]::after { right:5px; top:5px; }
+.anchor[data-anchor="sw"]::after { left:5px; bottom:5px; }
+.anchor[data-anchor="se"]::after { right:5px; bottom:5px; }
+.anchor.on { background:var(--accent); }
+.anchor.on::after { background:#fff; }
+.bufgrid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin:6px 0 0; }
 dialog { border:none; border-radius:12px; padding:18px 20px; width:340px;
   font:inherit; color:var(--ink); }
 dialog::backdrop { background:#1d243355; }
@@ -64,6 +74,8 @@ dialog label { display:flex; flex-direction:column; gap:3px; font-size:12.5px;
   color:var(--muted); margin-bottom:8px; }
 dialog input { font:inherit; padding:6px 9px; border:1px solid var(--line);
   border-radius:7px; background:#fff; color:var(--ink); }
+dialog textarea { font:12px/1.4 ui-monospace,Consolas,monospace; padding:6px 9px;
+  border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); }
 main { flex:1; min-width:0; }
 #canvas-wrap { overflow:auto; max-height:calc(100vh - 260px); background:#fff;
   border:1px solid var(--line); border-radius:10px; padding:8px; }
@@ -140,11 +152,31 @@ footer { margin-top:14px; }
   </section>
 
   <section>
-    <h2>Раппорт</h2>
+    <h2>Выделение</h2>
     <p id="sel-info" class="meta">нет выделения</p>
     <button id="btn-repeat" class="minor" disabled
       title="выделенный блок копируется вправо до конца схемы, последний неполный повтор обрезается">Повторить до конца →</button>
+    <button id="btn-crop" class="minor" disabled
+      title="поле станет ровно выделенным прямоугольником, всё вне выделения удалится (Ctrl+Z вернёт)">Обрезать до выделения</button>
+    <button id="btn-copy" class="minor"
+      title="Ctrl+C — копирует выделение (без выделения — всё поле) в буфер и в системный буфер текстом-JSON">⧉ Копировать (Ctrl+C)</button>
+    <button id="btn-cut" class="minor"
+      title="Ctrl+X — копирует и очищает блок на месте (в пустые клетки)">✂ Вырезать (Ctrl+X)</button>
     <button id="btn-desel" class="minor" disabled>Снять выделение (Esc)</button>
+  </section>
+
+  <section>
+    <h2>Буфер обмена</h2>
+    <p id="clip-info" class="meta">буфер пуст — выдели блок и Ctrl+C</p>
+    <button id="btn-paste" class="minor" disabled
+      title="Ctrl+V — блок-«призрак» за мышью: клик — вставить (можно многократно), Esc — отмена; R / H / V — поворот и отражения">Вставить (Ctrl+V)</button>
+    <button id="btn-paste-ext" class="minor"
+      title="вставить блок текстом-JSON из системного буфера — перенос между вкладками и сессиями редактора">Вставить из буфера…</button>
+    <div class="bufgrid">
+      <button id="btn-rot" class="minor" disabled title="повернуть блок в буфере на 90° по часовой (R)">⟳ 90°</button>
+      <button id="btn-flip-x" class="minor" disabled title="отразить блок в буфере ←→ (H)">⇄ ←→</button>
+      <button id="btn-flip-y" class="minor" disabled title="отразить блок в буфере ↑↓ (V)">⇅ ↑↓</button>
+    </div>
   </section>
 
   <section>
@@ -152,6 +184,13 @@ footer { margin-top:14px; }
     <div class="pair">
       <label>Колонок <input id="size-cols" type="number" min="1" max="2000"></label>
       <label>Рядов <input id="size-rows" type="number" min="1" max="500"></label>
+    </div>
+    <p class="meta" style="margin:6px 0 4px">Привязка — что на месте при обрезке/добавлении:</p>
+    <div class="anchors" id="anchor-box">
+      <button type="button" class="anchor on" data-anchor="nw" title="левый верхний угол"></button>
+      <button type="button" class="anchor" data-anchor="ne" title="правый верхний угол"></button>
+      <button type="button" class="anchor" data-anchor="sw" title="левый нижний угол"></button>
+      <button type="button" class="anchor" data-anchor="se" title="правый нижний угол"></button>
     </div>
     <button id="btn-apply-size" class="minor">Применить размер (обрежет / добавит пустое)</button>
     <button id="btn-fill-bg" class="minor">Пустое → фон №0</button>
@@ -193,6 +232,17 @@ footer { margin-top:14px; }
   </div>
 </dialog>
 
+<dialog id="paste-dialog">
+  <h2 style="margin:0 0 6px">Вставка из буфера</h2>
+  <p class="meta" style="margin:0 0 10px">Ctrl+C в редакторе кладёт блок схемы в буфер
+     текстом-JSON — вставь его сюда (Ctrl+V в поле) и нажми «Вставить».</p>
+  <label>Текст блока <textarea id="pa-text" rows="7" spellcheck="false"></textarea></label>
+  <div class="pair" style="justify-content:flex-end;margin-top:12px">
+    <button id="pa-cancel" class="minor" type="button">Отмена</button>
+    <button id="pa-go" class="primary" type="button">Вставить</button>
+  </div>
+</dialog>
+
 <script>
 "use strict";
 // --- состояние ---
@@ -219,6 +269,9 @@ let colorIdx = 0;
 let symX = false, symY = false;
 let fillShapes = false;
 let presets = [];
+let clip = null;        // буфер блока: {w, h, colors:[{name,hex}], cells:[...]}
+let pasteMode = false;  // вставка: блок-«призрак» за мышью, клик — вставить
+let anchor = "nw";      // привязка при смене размера поля (nw/ne/sw/se)
 const undoStack = [];
 const redoStack = [];
 const PAD = 22;                // поле под линейки, px
@@ -244,6 +297,13 @@ function mirrorPoints(x, y) {
 }
 // поставить клетку с учётом зеркал
 function put(x, y, v) { for (const [px, py] of mirrorPoints(x, y)) setCell(px, py, v); }
+
+function hexA(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
 
 function normHex(h) {
   let m = /^#([0-9a-fA-F]{6})$/.exec(String(h || "").trim());
@@ -284,12 +344,14 @@ function restore(sn) {
 
 function doUndo() {
   if (!undoStack.length) return;
+  if (pasteMode) stopPaste();
   redoStack.push(snapshot());
   restore(undoStack.pop());
 }
 
 function doRedo() {
   if (!redoStack.length) return;
+  if (pasteMode) stopPaste();
   undoStack.push(snapshot());
   restore(redoStack.pop());
 }
@@ -382,6 +444,7 @@ function delColor(i) {
   S.cells = S.cells.map(v => (v === i ? -1 : (v > i ? v - 1 : v)));
   S.colors.splice(i, 1);
   if (colorIdx >= S.colors.length) colorIdx = S.colors.length - 1;
+  markDirty(true);
   renderPalette();
   redraw();
   updateCounts();
@@ -407,22 +470,27 @@ function updateStatus(hover) {
   const c = S.colors[colorIdx];
   parts.push(`цвет: №${colorIdx}${c ? " " + c.name : ""}`);
   if (hover) parts.push(`клетка: кол. ${hover.x + 1}, ряд ${hover.y + 1}`);
+  if (pasteMode && clip)
+    parts.push(`вставка ${clip.w}×${clip.h}: клик — поставить, Esc — отмена, R/H/V`);
   document.getElementById("status").textContent = parts.join(" · ");
 }
 
 function updateSelPanel() {
   const info = document.getElementById("sel-info");
   const rep = document.getElementById("btn-repeat");
+  const crop = document.getElementById("btn-crop");
   const desel = document.getElementById("btn-desel");
   if (S.sel) {
     info.textContent =
       `выделено ${S.sel.w}×${S.sel.h} (кол. ${S.sel.x + 1}, ряд ${S.sel.y + 1})`;
     rep.disabled = false;
     desel.disabled = false;
+    crop.disabled = S.sel.w === S.cols && S.sel.h === S.rows;
   } else {
     info.textContent = "нет выделения";
     rep.disabled = true;
     desel.disabled = true;
+    crop.disabled = true;
   }
 }
 
@@ -539,6 +607,26 @@ function drawOverlay(ctx) {
       S.sel.w * zoom - 2, S.sel.h * zoom - 2);
     ctx.restore();
   }
+  // блок-призрак вставки (выступ за поле обрезается)
+  if (pasteMode && clip && hover && inGrid(hover.x, hover.y)) {
+    for (let y = 0; y < clip.h; y++)
+      for (let x = 0; x < clip.w; x++) {
+        const v = clip.cells[y * clip.w + x];
+        const tx = hover.x + x, ty = hover.y + y;
+        if (!inGrid(tx, ty)) continue;
+        ctx.fillStyle = v >= 0 && clip.colors[v]
+          ? hexA(clip.colors[v].hex, 0.55)
+          : "rgba(255,255,255,0.6)";
+        ctx.fillRect(PAD + tx * zoom, PAD + ty * zoom, zoom, zoom);
+      }
+    ctx.save();
+    ctx.strokeStyle = "#0a7d32";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(PAD + hover.x * zoom + 1, PAD + hover.y * zoom + 1,
+      clip.w * zoom - 2, clip.h * zoom - 2);
+    ctx.restore();
+  }
 }
 
 // --- геометрия ---
@@ -627,6 +715,7 @@ cv().addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
   const p = posFromEvent(ev);
   if (!inGrid(p.x, p.y)) return;
+  if (pasteMode) { pasteClipAt(p); return; }
   cv().setPointerCapture(ev.pointerId);
   if (tool === "brush" || tool === "eraser") {
     pushUndo();
@@ -634,11 +723,13 @@ cv().addEventListener("pointerdown", (ev) => {
     paintAt(p);
     redraw();
     updateCounts();
+    markDirty(true);
   } else if (tool === "fill") {
     pushUndo();
     fillAt(p);
     redraw();
     updateCounts();
+    markDirty(true);
   } else {
     drag = { mode: tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
     redraw();
@@ -647,6 +738,7 @@ cv().addEventListener("pointerdown", (ev) => {
 
 cv().addEventListener("pointermove", (ev) => {
   const p = posFromEvent(ev);
+  const prevHover = hover;
   if (drag) {
     if (drag.mode === "paint") {
       paintAt(p);
@@ -658,6 +750,9 @@ cv().addEventListener("pointermove", (ev) => {
     redraw();
   }
   hover = inGrid(p.x, p.y) ? p : null;
+  if (pasteMode && !drag &&
+      (!prevHover || !hover || prevHover.x !== hover.x || prevHover.y !== hover.y))
+    redraw();
   updateStatus(hover);
 });
 
@@ -679,10 +774,12 @@ cv().addEventListener("pointerup", () => {
   drag = null;
   redraw();
   updateCounts();
+  markDirty(true);
 });
 
 cv().addEventListener("pointerleave", () => {
   hover = null;
+  if (pasteMode) redraw();
   updateStatus(null);
 });
 
@@ -697,6 +794,7 @@ function repeatToEnd() {
       S.cells[ty * S.cols + tx] = S.cells[ty * S.cols + (x + ((tx - x) % w))];
   redraw();
   updateCounts();
+  markDirty(true);
 }
 
 function fillEmptyWithBg() {
@@ -713,15 +811,201 @@ function applySize() {
   const rows = clampInt(document.getElementById("size-rows").value, 1, 500, S.rows);
   if (cols === S.cols && rows === S.rows) return;
   pushUndo();
+  // привязка: какой угол старого поля остаётся на месте
+  const cw = Math.min(cols, S.cols), ch = Math.min(rows, S.rows);
+  const right = anchor === "ne" || anchor === "se";
+  const bottom = anchor === "sw" || anchor === "se";
+  const sx = right ? S.cols - cw : 0;   // откуда берём в старом поле
+  const sy = bottom ? S.rows - ch : 0;
+  const dx = right ? cols - cw : 0;     // куда кладём в новом
+  const dy = bottom ? rows - ch : 0;
   const next = emptyCells(cols, rows);
-  for (let y = 0; y < Math.min(rows, S.rows); y++)
-    for (let x = 0; x < Math.min(cols, S.cols); x++)
-      next[y * cols + x] = S.cells[y * S.cols + x];
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++)
+      next[(y + dy) * cols + (x + dx)] = S.cells[(y + sy) * S.cols + (x + sx)];
   S.cols = cols;
   S.rows = rows;
   S.cells = next;
   S.sel = null;
   afterGridChange();
+}
+
+function cropToSelection() {
+  if (!S.sel) return;
+  const { x, y, w, h } = S.sel;
+  if (w === S.cols && h === S.rows) return;
+  pushUndo();
+  const next = [];
+  for (let yy = 0; yy < h; yy++)
+    for (let xx = 0; xx < w; xx++)
+      next.push(S.cells[(y + yy) * S.cols + (x + xx)]);
+  S.cols = w;
+  S.rows = h;
+  S.cells = next;
+  S.sel = null;
+  afterGridChange();
+}
+
+// --- буфер обмена: копирование / вырезание / вставка ---
+
+function selRect() {
+  return S.sel || { x: 0, y: 0, w: S.cols, h: S.rows };
+}
+
+function copySel(cut) {
+  const r = selRect();
+  if (cut && !S.sel && !confirm("Выделения нет — вырезать всё поле?")) return;
+  const cells = [];
+  for (let y = 0; y < r.h; y++)
+    for (let x = 0; x < r.w; x++)
+      cells.push(S.cells[(r.y + y) * S.cols + (r.x + x)]);
+  clip = { w: r.w, h: r.h, colors: S.colors.map(c => ({ name: c.name, hex: c.hex })), cells };
+  if (cut) {
+    pushUndo();
+    for (let y = 0; y < r.h; y++)
+      for (let x = 0; x < r.w; x++)
+        S.cells[(r.y + y) * S.cols + (r.x + x)] = -1;
+    markDirty(true);
+    redraw();
+    updateCounts();
+  }
+  writeClipboardText(blockToText(clip));
+  updateClipPanel();
+  updateStatus();
+}
+
+function blockToText(b) {
+  return JSON.stringify({ picherBlock: 1, w: b.w, h: b.h, colors: b.colors, cells: b.cells });
+}
+
+function blockFromText(t) {
+  let d;
+  try { d = JSON.parse(String(t)); } catch (e) { throw new Error("это не JSON"); }
+  if (!(d && d.picherBlock === 1 && Number.isInteger(d.w) && d.w >= 1 && d.w <= 2000 &&
+        Number.isInteger(d.h) && d.h >= 1 && d.h <= 500 &&
+        Array.isArray(d.colors) && d.colors.length <= 64 &&
+        Array.isArray(d.cells) && d.cells.length === d.w * d.h))
+    throw new Error("это не блок схемы picher (нужны picherBlock:1, w, h, colors, cells)");
+  const colors = d.colors.map(c => ({ name: String((c && c.name) || ""), hex: normHex(c && c.hex) }));
+  const cells = d.cells.map(v => (Number.isInteger(v) && v >= -1 && v < colors.length) ? v : -1);
+  return { w: d.w, h: d.h, colors, cells };
+}
+
+function writeClipboardText(t) {
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(t).catch(() => {});
+}
+
+async function pasteFromClipboard() {
+  if (pasteMode) { stopPaste(); return; }
+  if (clip) { startPaste(clip); return; }
+  let text = "";
+  try {
+    if (navigator.clipboard && navigator.clipboard.readText)
+      text = await navigator.clipboard.readText();
+  } catch (e) { text = ""; }
+  if (text && text.trim()) {
+    try { startPaste(blockFromText(text)); return; } catch (e) { /* не блок — покажем окно */ }
+  }
+  document.getElementById("paste-dialog").showModal();
+  document.getElementById("pa-text").focus();
+}
+
+function startPaste(b) {
+  if (!b) return;
+  clip = b;
+  if (!pasteMode) {
+    pasteMode = true;
+    cv().style.cursor = "copy";
+  }
+  updateClipPanel();
+  redraw();
+  updateStatus();
+}
+
+function stopPaste() {
+  if (!pasteMode) return;
+  pasteMode = false;
+  cv().style.cursor = tool === "select" ? "crosshair" : "cell";
+  updateClipPanel();
+  redraw();
+  updateStatus();
+}
+
+function rotateClip() {
+  if (!clip) return;
+  const { w, h, cells } = clip;
+  const out = new Array(w * h);
+  for (let ny = 0; ny < w; ny++)
+    for (let nx = 0; nx < h; nx++)
+      out[ny * h + nx] = cells[(h - 1 - nx) * w + ny];
+  clip = { w: h, h: w, colors: clip.colors, cells: out };
+  redraw();
+  updateClipPanel();
+}
+
+function flipClip(fx, fy) {
+  if (!clip) return;
+  const { w, h, cells } = clip;
+  const out = new Array(w * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      out[y * w + x] = cells[(fy ? h - 1 - y : y) * w + (fx ? w - 1 - x : x)];
+  clip = { w, h, colors: clip.colors, cells: out };
+  redraw();
+  updateClipPanel();
+}
+
+function pasteClipAt(p) {
+  if (!clip) { stopPaste(); return; }
+  pushUndo();
+  // матчинг цветов блока с палитрой: точный hex, отсутствующие — новыми строками
+  const map = clip.colors.map(c => {
+    const hex = normHex(c.hex);
+    return S.colors.findIndex(sc => normHex(sc.hex) === hex);
+  });
+  for (let i = 0; i < clip.colors.length; i++)
+    if (map[i] < 0) {
+      S.colors.push({ name: clip.colors[i].name || "Цвет из буфера", hex: normHex(clip.colors[i].hex) });
+      map[i] = S.colors.length - 1;
+    }
+  if (S.colors.length > 64)
+    alert("Внимание: в палитре больше 64 цветов — сервер не сохранит такую схему.");
+  renderPalette();
+  for (let y = 0; y < clip.h; y++) {
+    const ty = p.y + y;
+    if (ty < 0 || ty >= S.rows) continue;
+    for (let x = 0; x < clip.w; x++) {
+      const tx = p.x + x;
+      if (tx < 0 || tx >= S.cols) continue;
+      const v = clip.cells[y * clip.w + x];
+      S.cells[idx(tx, ty)] = v >= 0 ? map[v] : -1;
+    }
+  }
+  markDirty(true);
+  redraw();
+  updateCounts();
+}
+
+function updateClipPanel() {
+  const info = document.getElementById("clip-info");
+  const paste = document.getElementById("btn-paste");
+  ["btn-rot", "btn-flip-x", "btn-flip-y"].forEach(id => {
+    document.getElementById(id).disabled = !clip;
+  });
+  if (pasteMode && clip) {
+    info.textContent = `вставка блока ${clip.w}×${clip.h}: клик — вставить, Esc — отмена, R/H/V — повернуть/отразить`;
+    paste.textContent = "Отменить вставку (Esc)";
+    paste.disabled = false;
+  } else if (clip) {
+    info.textContent = `в буфере блок ${clip.w}×${clip.h}, цветов ${clip.colors.length}`;
+    paste.textContent = "Вставить (Ctrl+V)";
+    paste.disabled = false;
+  } else {
+    info.textContent = "буфер пуст — выдели блок и Ctrl+C";
+    paste.textContent = "Вставить (Ctrl+V)";
+    paste.disabled = true;
+  }
 }
 
 function setZoom(z) {
@@ -944,7 +1228,8 @@ function wire() {
     b.addEventListener("click", () => {
       tool = b.dataset.tool;
       document.querySelectorAll(".tool-btn").forEach(x => x.classList.toggle("active", x === b));
-      cv().style.cursor = tool === "select" ? "crosshair" : "cell";
+      if (pasteMode) stopPaste();
+      else cv().style.cursor = tool === "select" ? "crosshair" : "cell";
       updateStatus();
     });
   });
@@ -962,6 +1247,38 @@ function wire() {
     redraw();
   });
   document.getElementById("btn-repeat").addEventListener("click", repeatToEnd);
+  document.getElementById("btn-crop").addEventListener("click", cropToSelection);
+  document.getElementById("btn-copy").addEventListener("click", () => copySel(false));
+  document.getElementById("btn-cut").addEventListener("click", () => copySel(true));
+  document.getElementById("btn-paste").addEventListener("click", () => {
+    if (pasteMode) stopPaste();
+    else if (clip) startPaste(clip);
+    else pasteFromClipboard();
+  });
+  document.getElementById("btn-paste-ext").addEventListener("click", () => {
+    document.getElementById("paste-dialog").showModal();
+    document.getElementById("pa-text").focus();
+  });
+  document.getElementById("btn-rot").addEventListener("click", rotateClip);
+  document.getElementById("btn-flip-x").addEventListener("click", () => flipClip(true, false));
+  document.getElementById("btn-flip-y").addEventListener("click", () => flipClip(false, true));
+  document.getElementById("pa-cancel").addEventListener("click", () =>
+    document.getElementById("paste-dialog").close());
+  document.getElementById("pa-go").addEventListener("click", () => {
+    try {
+      const b = blockFromText(document.getElementById("pa-text").value.trim());
+      document.getElementById("paste-dialog").close();
+      startPaste(b);
+    } catch (e) {
+      alert("Вставка не удалась: " + e.message);
+    }
+  });
+  document.querySelectorAll("#anchor-box .anchor").forEach((b) => {
+    b.addEventListener("click", () => {
+      anchor = b.dataset.anchor;
+      document.querySelectorAll("#anchor-box .anchor").forEach(x => x.classList.toggle("on", x === b));
+    });
+  });
   document.getElementById("btn-desel").addEventListener("click", () => {
     S.sel = null;
     redraw();
@@ -992,18 +1309,34 @@ function wire() {
   document.getElementById("btn-refresh").addEventListener("click", refreshServerList);
 
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && S.sel) {
-      S.sel = null;
-      redraw();
-      updateSelPanel();
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
+              t.tagName === "SELECT" || t.isContentEditable)) return;
+    const k = ev.key.toLowerCase();
+    if (ev.key === "Escape") {
+      if (pasteMode) { stopPaste(); return; }
+      if (S.sel) {
+        S.sel = null;
+        redraw();
+        updateSelPanel();
+      }
       return;
     }
+    if (pasteMode && !(ev.ctrlKey || ev.metaKey)) {
+      if (k === "r") { ev.preventDefault(); rotateClip(); return; }
+      if (k === "h") { ev.preventDefault(); flipClip(true, false); return; }
+      if (k === "v") { ev.preventDefault(); flipClip(false, true); return; }
+    }
     if (!(ev.ctrlKey || ev.metaKey)) return;
-    const k = ev.key.toLowerCase();
     if (k === "z" && !ev.shiftKey) { ev.preventDefault(); doUndo(); }
     else if ((k === "z" && ev.shiftKey) || k === "y") { ev.preventDefault(); doRedo(); }
     else if (k === "s") { ev.preventDefault(); saveScheme(); }
+    else if (k === "c") { ev.preventDefault(); copySel(false); }
+    else if (k === "x") { ev.preventDefault(); copySel(true); }
+    else if (k === "v") { ev.preventDefault(); pasteFromClipboard(); }
   });
+
+  updateClipPanel();
 
   window.addEventListener("beforeunload", (ev) => {
     if (S.dirty) { ev.preventDefault(); ev.returnValue = ""; }
