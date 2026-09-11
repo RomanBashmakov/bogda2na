@@ -8,20 +8,25 @@
     python3 web/app.py --port 8080
 
 Что делает:
-  * формы запуска трёх генераторов — patterns/glitch.py,
-    belt_rus_generator/belt_rus.py (параметров нет), img_generator/img_belt.py;
-  * загрузка картинок для img_belt.py в web/uploads/ + повторный выбор;
-  * список готовых схем из out/ каждого генератора: просмотр в новой
+  * формы запуска генераторов — patterns/glitch.py и
+    belt_rus_generator/belt_rus.py (параметров нет);
+  * вкладка «Картинка» — оцифровка picher/digitize.py: загруженная
+    картинка → JSON-схема в picher/schemes/, правка и печать в редакторе;
+  * редактор схем «picher» — страница /picher: рисование/правка схемы
+    мышью, сохранение/открытие/удаление JSON-схем и печать кнопкой
+    «Распечатать A4» (picher/render.py → picher/out/, файлы видны
+    в списке «Готовые схемы»);
+  * загрузка картинок в web/uploads/ + повторный выбор;
+  * список готовых схем из out/ генераторов: просмотр в новой
     вкладке (/view/<gen>/<файл>) и удаление (основной файл + папки
     одноцветных схем <имя>_colsN_colorsM/);
-  * редактор схем «picher» — страница /picher (файлы в picher/schemes/):
-    рисование схемы мышью, сохранение/открытие/удаление JSON-схем;
   * stdout/stderr скрипта и ссылки на созданные файлы.
 
 Генераторы запускаются subprocess'ом интерпретатором .venv, если он есть
 (как в setup.sh), иначе текущим. Сервер слушает только 127.0.0.1.
 Зависимость — flask (requirements.txt); при системном Python без pip:
-sudo apt install python3-flask.
+sudo apt install python3-flask. Pillow нужна только picher/digitize.py
+(запускается отдельно, Flask может жить без неё).
 """
 
 import argparse
@@ -51,8 +56,13 @@ GENERATORS = {
                "dir": ROOT / "patterns", "label": "Надпись"},
     "belt":   {"script": ROOT / "belt_rus_generator" / "belt_rus.py",
                "dir": ROOT / "belt_rus_generator", "label": "Этно-пояс"},
-    "img":    {"script": ROOT / "img_generator" / "img_belt.py",
+    # старые схемы «картинка → HTML» (до перевода на picher): только
+    # просмотр/удаление, скрипт-генератор удалён
+    "img":    {"script": None,
                "dir": ROOT / "img_generator", "label": "Картинка"},
+    # печать из редактора picher (picher/render.py) кладёт файлы сюда
+    "picher": {"script": None,
+               "dir": PICH, "label": "Picher"},
 }
 
 UPLOAD_EXT = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
@@ -130,30 +140,29 @@ def build_argv(gen, p):
         if out:
             argv += ["--out", str(out)]
         return argv
-    # img
+
+
+def build_digitize_argv(p):
+    """argv для picher/digitize.py: картинка из загрузок → схема picher."""
     image = str(p.get("image") or "").strip()
     if not image:
         raise BadInput("Выберите картинку")
     path = UPLOADS / BAD_NAME.sub("_", image)
     if not path.is_file():
         raise BadInput(f"Картинки «{image}» нет в загрузках")
-    argv.append(str(path))
+    argv = [str(PICH / "digitize.py"), str(path)]
     if str(p.get("colors") or "").strip():
         argv += ["-n", str(_num(p["colors"], int, "цвета"))]
     if str(p.get("cols") or "").strip():
         argv += ["--cols", str(_num(p["cols"], int, "длина"))]
-    for key, label in (("pitch-mm", "шаг сетки"), ("circle-d-mm", "диаметр")):
-        if str(p.get(key) or "").strip():
-            argv += ["--" + key, str(_num(p[key], float, label))]
-    for flag in ("dither", "mirror", "no-numbers"):
+    for flag in ("dither", "mirror"):
         if p.get(flag):
             argv.append("--" + flag)
-    if str(p.get("title") or "").strip():
-        argv += ["--title", str(p["title"]).strip()]
-    out = _out_path("img", p.get("out"))
-    if out:
-        argv += ["--out", str(out)]
-    return argv
+    name = ""
+    if str(p.get("name") or "").strip():
+        name = BAD_NAME.sub("_", str(p["name"]).strip())
+        argv += ["--name", name]
+    return argv, name
 
 
 def snapshot_out():
@@ -237,7 +246,7 @@ def view(gen, name):
 
 @app.post("/api/run/<gen>")
 def api_run(gen):
-    if gen not in GENERATORS:
+    if gen not in GENERATORS or not GENERATORS[gen]["script"]:
         abort(404)
     p = request.get_json(force=True, silent=True) or {}
     try:
@@ -264,6 +273,35 @@ def api_run(gen):
     ok = proc.returncode == 0
     return jsonify(ok=ok, stdout=proc.stdout, stderr=proc.stderr,
                    created=created)
+
+
+@app.post("/api/img2picher")
+def api_img2picher():
+    """Вкладка «Картинка»: оцифровка загруженной картинки в схему picher.
+
+    Запускает picher/digitize.py subprocess'ом (Pillow нужна только ему),
+    ответ — имя схемы в picher/schemes/ и stdout скрипта.
+    """
+    p = request.get_json(force=True, silent=True) or {}
+    try:
+        argv, name = build_digitize_argv(p)
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    try:
+        proc = subprocess.run(
+            [python_bin()] + argv, cwd=str(PICH),
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=600)
+    except subprocess.TimeoutExpired:
+        return jsonify(ok=False, error="Скрипт не завершился за 10 минут"), 504
+    except OSError as e:
+        return jsonify(ok=False, error=f"Не удалось запустить: {e}"), 500
+    if proc.returncode != 0:
+        return jsonify(ok=False, stdout=proc.stdout, stderr=proc.stderr), 400
+    if not name:  # имя по умолчанию печатает digitize.py («СХЕМА: имя»)
+        m = re.search(r"^СХЕМА: (.+)$", proc.stdout, re.M)
+        name = m.group(1).strip() if m else Path(argv[1]).stem
+    return jsonify(ok=True, name=name, stdout=proc.stdout, stderr=proc.stderr)
 
 
 @app.post("/api/upload")
@@ -437,6 +475,47 @@ def picher_api_delete():
         return jsonify(ok=False, error="Схемы нет"), 404
     path.unlink()
     return jsonify(ok=True)
+
+
+def _render_mod():
+    """Модуль picher/render.py (общий рендер с glitch.py, без Pillow)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "picher_render", PICH / "render.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@app.post("/picher/api/print")
+def picher_api_print():
+    """Кнопка «Распечатать A4»: схема → picher/out/ (picher/render.py)."""
+    p = request.get_json(force=True, silent=True) or {}
+    name = _pich_name(p.get("name"))
+    if not name:
+        return jsonify(ok=False, error="Укажите имя схемы"), 400
+    src = PICH_SCHEMES / f"{name}.json"
+    if not src.is_file():
+        return jsonify(ok=False, error="Схемы нет"), 404
+    try:
+        pitch = float(p.get("pitch_mm") or 4.5)
+        circle = float(p.get("circle_d_mm") or 3.0)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Шаг и диаметр — числа"), 400
+    title = str(p.get("title") or "").strip() or name
+    try:
+        data = _pich_data(json.loads(src.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as e:
+        return jsonify(ok=False, error=f"Файл битый: {e}"), 400
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    try:
+        files = _render_mod().write_outputs(
+            data, name=name, title=title, pitch_mm=pitch,
+            circle_d_mm=circle, out_dir=PICH / "out")
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, files=files)
 
 
 def main():

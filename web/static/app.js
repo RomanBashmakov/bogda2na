@@ -138,11 +138,44 @@ async function runGen(gen, form) {
   }
 }
 
-["glitch", "belt", "img"].forEach((gen) => {
+["glitch", "belt"].forEach((gen) => {
   $("#form-" + gen).addEventListener("submit", (ev) => {
     ev.preventDefault();
     runGen(gen, ev.target);
   });
+});
+
+// --- картинка → picher (оцифровка) ---
+
+$("#form-img").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const btn = form.querySelector(".run");
+  const box = $("#run-result");
+  btn.disabled = true;
+  box.classList.remove("hidden", "ok", "err");
+  box.textContent = "Оцифровываю…";
+  try {
+    const r = await api("/api/img2picher", formParams(form));
+    if (r.ok) {
+      box.classList.add("ok");
+      box.innerHTML = "<strong>Готово.</strong> Схема «" + esc(r.name) +
+        "» сохранена в picher/schemes/. " +
+        `<a href="/picher?name=${encodeURIComponent(r.name)}" target="_blank" rel="noopener">Открыть в редакторе →</a>` +
+        (r.stdout ? `<pre>${esc(r.stdout.trim())}</pre>` : "");
+    } else {
+      box.classList.add("err");
+      const tail = (r.stderr || r.error || r.stdout || "").trim().split("\n");
+      box.innerHTML = "<strong>Ошибка.</strong>" +
+        `<pre>${esc(tail.slice(-30).join("\n"))}</pre>`;
+    }
+  } catch (e) {
+    box.classList.add("err");
+    box.textContent = "Сервер недоступен: " + e;
+  } finally {
+    btn.disabled = false;
+    refreshState();
+  }
 });
 
 // --- загрузка картинок ---

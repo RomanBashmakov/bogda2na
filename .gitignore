@@ -13,3 +13,6 @@ tts/out/
 
 # Схемы, нарисованные в редакторе picher (веб-интерфейс)
 picher/schemes/
+
+# Печатные схемы из редактора picher (web/app.py → picher/render.py)
+picher/out/
