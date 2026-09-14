@@ -55,8 +55,10 @@ aside > section > button { width:100%; margin-top:6px; }
 .pname { font-size:12.5px; min-width:0; }
 .pcount { font-size:11.5px; color:var(--muted); width:38px; flex:none; text-align:right; }
 .pdel { background:none; color:#b3261e; padding:2px 5px; flex:none; }
-.zoomrow { align-items:center; margin-top:6px; }
-.zoomrow .meta { flex:1; text-align:center; }
+#zoombar { display:flex; align-items:center; gap:6px; background:#fff;
+  border:1px solid var(--line); border-radius:10px; padding:6px 10px;
+  margin-bottom:8px; width:max-content; }
+#zoombar .meta { min-width:52px; text-align:center; }
 .anchors { display:grid; grid-template-columns:repeat(2, 34px); gap:4px; }
 .anchor { position:relative; height:26px; background:#eceff5; border-radius:6px; }
 .anchor::after { content:""; position:absolute; width:7px; height:7px; border-radius:50%; background:#6b7280; }
@@ -80,6 +82,13 @@ main { flex:1; min-width:0; }
 #canvas-wrap { overflow:auto; max-height:calc(100vh - 260px); background:#fff;
   border:1px solid var(--line); border-radius:10px; padding:8px; }
 #grid { display:block; touch-action:none; cursor:cell; }
+#preview-box { margin-top:8px; }
+#preview-label { margin:0 0 4px; }
+#preview-scroll { overflow:auto; min-height:100px; max-height:260px; background:#fff;
+  border:1px solid var(--line); border-radius:10px; padding:8px;
+  display:flex; }
+#preview-grid { display:block; margin:auto; }
+#preview-empty { display:block; margin:auto; }
 #status { margin-top:6px; min-height:18px; }
 #server-list { display:flex; flex-direction:column; gap:4px; margin:6px 0; }
 .srow { display:flex; align-items:center; gap:8px; }
@@ -130,6 +139,7 @@ footer { margin-top:14px; }
       <button class="tool-btn" data-tool="rect" title="прямоугольник">▭ Прямоуг.</button>
       <button class="tool-btn" data-tool="ellipse" title="овал">◯ Овал</button>
       <button class="tool-btn" data-tool="select" title="выделить прямоугольник — раппорт для повтора">▣ Выделение</button>
+      <button class="tool-btn" data-tool="frame" title="рамка фиксированного размера ходит за мышью по полю, клик — сделать её выделением; размер — в секции «Выделение»">🔲 Рамка</button>
     </div>
     <label class="chk"><input type="checkbox" id="fill-shapes"> заливать прям-к/овал</label>
     <div class="pair">
@@ -154,6 +164,12 @@ footer { margin-top:14px; }
   <section>
     <h2>Выделение</h2>
     <p id="sel-info" class="meta">нет выделения</p>
+    <div class="pair">
+      <label>Рамка, колонок <input id="frame-w" type="number" min="1" max="2000" value="10"
+        title="ширина окна инструмента «Рамка», в клетках"></label>
+      <label>Рамка, рядов <input id="frame-h" type="number" min="1" max="500" value="10"
+        title="высота окна инструмента «Рамка», в клетках"></label>
+    </div>
     <button id="btn-repeat" class="minor" disabled
       title="выделенный блок копируется вправо до конца схемы, последний неполный повтор обрезается">Повторить до конца →</button>
     <button id="btn-crop" class="minor" disabled
@@ -195,12 +211,6 @@ footer { margin-top:14px; }
     <button id="btn-apply-size" class="minor">Применить размер (обрежет / добавит пустое)</button>
     <button id="btn-fill-bg" class="minor">Пустое → фон №0</button>
     <label class="chk"><input type="checkbox" id="show-nums" checked> номера коробочек в клетках</label>
-    <div class="pair zoomrow">
-      <button id="zoom-out" class="minor" title="мелче">−</button>
-      <span id="zoom-val" class="meta">18 px</span>
-      <button id="zoom-in" class="minor" title="крупнее">+</button>
-      <button id="zoom-fit" class="minor">по ширине</button>
-    </div>
   </section>
 
   <section>
@@ -211,7 +221,20 @@ footer { margin-top:14px; }
 </aside>
 
 <main>
+  <div id="zoombar">
+    <button id="zoom-out" class="minor" title="мелче">−</button>
+    <span id="zoom-val" class="meta">18 px</span>
+    <button id="zoom-in" class="minor" title="крупнее">+</button>
+    <button id="zoom-fit" class="minor" title="подогнать клетку под ширину окна">по ширине</button>
+  </div>
   <div id="canvas-wrap"><canvas id="grid"></canvas></div>
+  <div id="preview-box">
+    <div id="preview-label" class="meta">предпросмотр: нет выделения</div>
+    <div id="preview-scroll">
+      <canvas id="preview-grid" hidden></canvas>
+      <span id="preview-empty" class="meta">нет выделения — выдели блок или включи инструмент «Рамка»</span>
+    </div>
+  </div>
   <div id="status" class="meta"></div>
 </main>
 </div>
@@ -272,12 +295,14 @@ let presets = [];
 let clip = null;        // буфер блока: {w, h, colors:[{name,hex}], cells:[...]}
 let pasteMode = false;  // вставка: блок-«призрак» за мышью, клик — вставить
 let anchor = "nw";      // привязка при смене размера поля (nw/ne/sw/se)
+let frameW = 10, frameH = 10;  // окно инструмента «Рамка», клеток; помнится между включениями
 const undoStack = [];
 const redoStack = [];
 const PAD = 22;                // поле под линейки, px
+const PZOOM = 24;              // клетка в окне предпросмотра, px
 const TOOL_NAMES = {
   brush: "кисть", eraser: "ластик", fill: "заливка", line: "линия",
-  rect: "прямоугольник", ellipse: "овал", select: "выделение",
+  rect: "прямоугольник", ellipse: "овал", select: "выделение", frame: "рамка",
 };
 
 const cv = () => document.getElementById("grid");
@@ -470,6 +495,8 @@ function updateStatus(hover) {
   const c = S.colors[colorIdx];
   parts.push(`цвет: №${colorIdx}${c ? " " + c.name : ""}`);
   if (hover) parts.push(`клетка: кол. ${hover.x + 1}, ряд ${hover.y + 1}`);
+  if (tool === "frame")
+    parts.push(`рамка ${frameW}×${frameH}: двигай мышью, клик — выделить, Esc — выход`);
   if (pasteMode && clip)
     parts.push(`вставка ${clip.w}×${clip.h}: клик — поставить, Esc — отмена, R/H/V`);
   document.getElementById("status").textContent = parts.join(" · ");
@@ -501,6 +528,7 @@ function markDirty(d) {
 }
 
 function afterGridChange() {
+  if (tool === "frame" && (frameW > S.cols || frameH > S.rows)) exitFrameMode();
   document.getElementById("size-cols").value = S.cols;
   document.getElementById("size-rows").value = S.rows;
   markDirty(true);
@@ -575,6 +603,7 @@ function redraw() {
       ctx.fillText(String(y), 4, PAD + (y - 1) * zoom + zoom / 2 - 5);
   }
   drawOverlay(ctx);
+  renderPreview();
 }
 
 function drawOverlay(ctx) {
@@ -607,6 +636,19 @@ function drawOverlay(ctx) {
       S.sel.w * zoom - 2, S.sel.h * zoom - 2);
     ctx.restore();
   }
+  // рамка инструмента «Рамка»: ходит за мышью, прижата внутрь поля
+  if (tool === "frame" && !drag && hover && inGrid(hover.x, hover.y)) {
+    const fr = frameRectAt(hover);
+    if (fr) {
+      ctx.save();
+      ctx.strokeStyle = "#b45309";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(PAD + fr.x * zoom + 1, PAD + fr.y * zoom + 1,
+        fr.w * zoom - 2, fr.h * zoom - 2);
+      ctx.restore();
+    }
+  }
   // блок-призрак вставки (выступ за поле обрезается)
   if (pasteMode && clip && hover && inGrid(hover.x, hover.y)) {
     for (let y = 0; y < clip.h; y++)
@@ -627,6 +669,109 @@ function drawOverlay(ctx) {
       clip.w * zoom - 2, clip.h * zoom - 2);
     ctx.restore();
   }
+}
+
+// --- рамка (фрейм-выделение) и окно предпросмотра ---
+
+// рамка с левым верхним углом в клетке p, прижатая внутрь поля
+function frameRectAt(p) {
+  if (!p || frameW > S.cols || frameH > S.rows) return null;
+  const x = Math.min(Math.max(p.x, 0), S.cols - frameW);
+  const y = Math.min(Math.max(p.y, 0), S.rows - frameH);
+  return { x, y, w: frameW, h: frameH };
+}
+
+// выйти из режима рамки: инструмент — обычное «Выделение»
+function exitFrameMode() {
+  if (tool !== "frame") return;
+  tool = "select";
+  document.querySelectorAll(".tool-btn").forEach(x =>
+    x.classList.toggle("active", x.dataset.tool === "select"));
+  cv().style.cursor = "crosshair";
+  redraw();
+  updateStatus();
+}
+
+function readFrameInputs() {
+  frameW = clampInt(document.getElementById("frame-w").value, 1, 2000, frameW);
+  frameH = clampInt(document.getElementById("frame-h").value, 1, 500, frameH);
+  document.getElementById("frame-w").value = frameW;
+  document.getElementById("frame-h").value = frameH;
+  if (tool === "frame" && (frameW > S.cols || frameH > S.rows)) exitFrameMode();
+  redraw();
+  updateStatus();
+}
+
+// что показывать в окне предпросмотра под канвой
+function previewRect() {
+  if (tool === "frame")
+    return hover && inGrid(hover.x, hover.y) ? frameRectAt(hover) : null;
+  return S.sel || null;
+}
+
+function renderPreview() {
+  const c = document.getElementById("preview-grid");
+  const label = document.getElementById("preview-label");
+  const empty = document.getElementById("preview-empty");
+  const r = previewRect();
+  if (!r) {
+    c.hidden = true;
+    empty.hidden = false;
+    if (tool === "frame") {
+      label.textContent = `рамка ${frameW}×${frameH} · наведи мышь на поле`;
+      empty.textContent = "наведи мышь на поле — здесь будет содержимое рамки";
+    } else {
+      label.textContent = "предпросмотр: нет выделения";
+      empty.textContent = "нет выделения — выдели блок или включи инструмент «Рамка»";
+    }
+    return;
+  }
+  c.hidden = false;
+  empty.hidden = true;
+  label.textContent =
+    `${tool === "frame" ? "рамка" : "выделение"} ${r.w}×${r.h}` +
+    ` · кол. ${r.x + 1}–${r.x + r.w}, ряд ${r.y + 1}–${r.y + r.h}`;
+  drawPreview(c, r);
+}
+
+// содержимое прямоугольника: как главный канвас; клетка подбирается,
+// чтобы рамка влезла в окно целиком (прокрутка — страховка на крайний случай)
+function drawPreview(c, r) {
+  const availW = Math.max(60, document.getElementById("preview-scroll").clientWidth - 18);
+  const pz = Math.max(1, Math.min(PZOOM, Math.floor(availW / r.w), Math.floor(242 / r.h)));
+  const ctx = c.getContext("2d");
+  const w = r.w * pz, h = r.h * pz;
+  c.width = w + 2;
+  c.height = h + 2;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  for (let y = 0; y < r.h; y++) {
+    for (let x = 0; x < r.w; x++) {
+      const v = S.cells[(r.y + y) * S.cols + (r.x + x)];
+      const px = 1 + x * pz, py = 1 + y * pz;
+      ctx.fillStyle = v >= 0 && S.colors[v] ? S.colors[v].hex : "#fbfcfe";
+      ctx.fillRect(px, py, pz, pz);
+      if (v >= 0 && S.colors[v] && pz >= 13) {
+        ctx.fillStyle = textOn(S.colors[v].hex);
+        ctx.font = `bold ${Math.max(8, Math.floor(pz * 0.5))}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(v), px + pz / 2, py + pz / 2 + 1);
+      }
+    }
+  }
+  // сетка (каждая 10-я линия поля — темнее)
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= r.w; x++) {
+    ctx.strokeStyle = (r.x + x) % 10 === 0 ? "#00000042" : "#00000018";
+    strokeLine(ctx, 1 + x * pz + 0.5, 1, 1 + x * pz + 0.5, 1 + h);
+  }
+  for (let y = 0; y <= r.h; y++) {
+    ctx.strokeStyle = (r.y + y) % 10 === 0 ? "#00000042" : "#00000018";
+    strokeLine(ctx, 1, 1 + y * pz + 0.5, 1 + w, 1 + y * pz + 0.5);
+  }
+  ctx.strokeStyle = "#1d2433";
+  ctx.strokeRect(1.5, 1.5, w, h);
 }
 
 // --- геометрия ---
@@ -716,6 +861,14 @@ cv().addEventListener("pointerdown", (ev) => {
   const p = posFromEvent(ev);
   if (!inGrid(p.x, p.y)) return;
   if (pasteMode) { pasteClipAt(p); return; }
+  if (tool === "frame") {
+    const fr = frameRectAt(p);
+    if (!fr) return;
+    S.sel = fr;
+    exitFrameMode();   // режим выключается, остаётся обычное выделение
+    updateSelPanel();
+    return;
+  }
   cv().setPointerCapture(ev.pointerId);
   if (tool === "brush" || tool === "eraser") {
     pushUndo();
@@ -750,7 +903,7 @@ cv().addEventListener("pointermove", (ev) => {
     redraw();
   }
   hover = inGrid(p.x, p.y) ? p : null;
-  if (pasteMode && !drag &&
+  if (!drag && (pasteMode || tool === "frame") &&
       (!prevHover || !hover || prevHover.x !== hover.x || prevHover.y !== hover.y))
     redraw();
   updateStatus(hover);
@@ -779,7 +932,7 @@ cv().addEventListener("pointerup", () => {
 
 cv().addEventListener("pointerleave", () => {
   hover = null;
-  if (pasteMode) redraw();
+  if (pasteMode || tool === "frame") redraw();
   updateStatus(null);
 });
 
@@ -926,7 +1079,7 @@ function startPaste(b) {
 function stopPaste() {
   if (!pasteMode) return;
   pasteMode = false;
-  cv().style.cursor = tool === "select" ? "crosshair" : "cell";
+  cv().style.cursor = tool === "select" || tool === "frame" ? "crosshair" : "cell";
   updateClipPanel();
   redraw();
   updateStatus();
@@ -1226,10 +1379,15 @@ function newScheme(ask) {
 function wire() {
   document.querySelectorAll(".tool-btn").forEach((b) => {
     b.addEventListener("click", () => {
-      tool = b.dataset.tool;
+      const t = b.dataset.tool;
+      if (t === "frame" && (frameW > S.cols || frameH > S.rows)) {
+        alert(`Рамка ${frameW}×${frameH} больше поля ${S.cols}×${S.rows} — уменьши её размер в секции «Выделение».`);
+        return;
+      }
+      tool = t;
       document.querySelectorAll(".tool-btn").forEach(x => x.classList.toggle("active", x === b));
       if (pasteMode) stopPaste();
-      else cv().style.cursor = tool === "select" ? "crosshair" : "cell";
+      else cv().style.cursor = tool === "select" || tool === "frame" ? "crosshair" : "cell";
       updateStatus();
     });
   });
@@ -1246,6 +1404,8 @@ function wire() {
     updateCounts();
     redraw();
   });
+  document.getElementById("frame-w").addEventListener("input", readFrameInputs);
+  document.getElementById("frame-h").addEventListener("input", readFrameInputs);
   document.getElementById("btn-repeat").addEventListener("click", repeatToEnd);
   document.getElementById("btn-crop").addEventListener("click", cropToSelection);
   document.getElementById("btn-copy").addEventListener("click", () => copySel(false));
@@ -1289,6 +1449,7 @@ function wire() {
   document.getElementById("zoom-out").addEventListener("click", () => setZoom(zoom - 2));
   document.getElementById("zoom-in").addEventListener("click", () => setZoom(zoom + 2));
   document.getElementById("zoom-fit").addEventListener("click", fitWidth);
+  window.addEventListener("resize", () => renderPreview());
   document.getElementById("btn-save").addEventListener("click", saveScheme);
   document.getElementById("btn-export").addEventListener("click", exportJson);
   document.getElementById("btn-import").addEventListener("click", () =>
@@ -1315,6 +1476,7 @@ function wire() {
     const k = ev.key.toLowerCase();
     if (ev.key === "Escape") {
       if (pasteMode) { stopPaste(); return; }
+      if (tool === "frame") { exitFrameMode(); return; }
       if (S.sel) {
         S.sel = null;
         redraw();
