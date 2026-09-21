@@ -63,6 +63,9 @@ def load_config() -> dict:
     for fmt, f in cfg["formats"].items():
         if not (1 <= f["cols"] <= 2000 and 1 <= f["rows"] <= 2000):
             sys.exit(f"Формат {fmt}: сетка вне пределов редактора.")
+        if f["cols"] * f["rows"] > 40000:
+            sys.exit(f"Формат {fmt}: {f['cols'] * f['rows']} клеток — "
+                     f"больше лимита 40000.")
     for lvl in cfg["levels"]:
         if not 2 <= lvl["colors"] <= 30:
             sys.exit(f"Уровень {lvl['id']}: цветов должно быть 2–30.")
