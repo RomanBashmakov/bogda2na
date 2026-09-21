@@ -1,0 +1,21 @@
+{
+  "formats": {
+    "A6": {"cols": 23, "rows": 33, "label": "A6 · 10×15 см"},
+    "A5": {"cols": 33, "rows": 47, "label": "A5 · 15×21 см"},
+    "A4": {"cols": 46, "rows": 66, "label": "A4 · 21×30 см"}
+  },
+  "levels": [
+    {"id": "simple",   "label": "Простая",   "colors": 3},
+    {"id": "detailed", "label": "Детальная", "colors": 7},
+    {"id": "max",      "label": "Максимум",  "colors": 10}
+  ],
+  "prices": {
+    "A6": {"simple": 1900, "detailed": 2900, "max": 3900},
+    "A5": {"simple": 3400, "detailed": 4900, "max": 6400},
+    "A4": {"simple": 5900, "detailed": 7900, "max": 9900}
+  },
+  "pitch_mm": 4.5,
+  "dither": false,
+  "upload_max_mb": 20,
+  "watermark": {"text": "2N · 2n-beads.art", "opacity": 0.3}
+}

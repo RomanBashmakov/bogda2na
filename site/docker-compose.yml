@@ -1,0 +1,76 @@
+# docker-compose.yml — локальная копия сайта 2n-beads.art (WordPress).
+#
+#   1) дамп базы положить в site/db_dumps/ (например 01-dump.sql);
+#   2) docker compose up -d
+#   3) http://localhost:8080 — сайт; phpMyAdmin — http://localhost:8081
+#
+# Данные БД (имя/пользователь/пароль) берутся из site/.env — файл
+# создаётся из wp-config.php оригинала, в git не попадает. Учётка
+# wp-config.php не меняется: локально константы перекрываются
+# переменными окружения (см. wp-config.php, getenv-фоллбеки).
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${WP_DB_NAME}
+      MARIADB_USER: ${WP_DB_USER}
+      MARIADB_PASSWORD: ${WP_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD}
+    volumes:
+      - ./mysql:/var/lib/mysql
+      - ./db_dumps:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  wordpress:
+    image: wordpress:php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:                 # подхватывает wp-config.php (getenv)
+      WP_DB_HOST: db
+      WP_DB_NAME: ${WP_DB_NAME}
+      WP_DB_USER: ${WP_DB_USER}
+      WP_DB_PASSWORD: ${WP_DB_PASSWORD}
+    volumes:
+      - ./public_html:/var/www/html
+
+  pma:
+    image: phpmyadmin:5
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: ${WP_DB_USER}
+      PMA_PASSWORD: ${WP_DB_PASSWORD}
+
+  # разовый фикс ссылков после импорта дампа:
+  #   docker compose run --rm wpcli
+  wpcli:
+    profiles: ["tools"]
+    image: wordpress:cli-php8.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: ${WP_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WP_DB_NAME}
+    volumes:
+      - ./public_html:/var/www/html
+    entrypoint: >
+      sh -c 'wp search-replace "https://2n-beads.art" "http://localhost:8080"
+      --all-tables --skip-columns=guid && wp option update blog_public 0'

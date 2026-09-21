@@ -16,3 +16,15 @@ picher/schemes/
 
 # Печатные схемы из редактора picher (web/app.py → picher/render.py)
 picher/out/
+
+# Локальная копия сайта 2n-beads.art (файлы хостинга Timeweb) и её обвязка
+site/public_html/
+web/public_html/
+site/.env
+site/db_dumps/
+site/mysql/
+
+# Конструктор картин из бисера (service/): загрузки, рендеры, заказы
+service/uploads/
+service/renders/
+service/orders/

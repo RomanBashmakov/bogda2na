@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Картина из бисера по вашей картинке — 2N</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Картина из бисера по вашей картинке</h1>
+  <p class="hint">Загрузите любую нравящуюся картинку, выберите размер и
+     число цветов — соберём схему. Поправьте пару пикселей, и мы
+     покажем, как картина будет выглядеть в раме, и посчитаем
+     стоимость.</p>
+</header>
+
+<noscript><p class="run-result err">Без JavaScript конструктор не
+работает — включите его и обновите страницу.</p></noscript>
+<div id="err" class="run-result err hidden"></div>
+
+<section id="step-upload" class="card">
+  <h2>1. Картинка</h2>
+  <div id="drop" class="drop">
+    Перетащите файл сюда или
+    <label class="filelink">выберите на устройстве
+      <input id="file" type="file"
+             accept=".png,.jpg,.jpeg,.gif,.bmp,.webp" hidden>
+    </label>
+    <div class="meta" id="drop-meta">jpg · png · webp · gif · bmp</div>
+  </div>
+</section>
+
+<section id="step-setup" class="card hidden">
+  <h2>2. Размер и цвета</h2>
+  <div class="preview-wrap">
+    <canvas id="crop-canvas"></canvas>
+    <div id="tip" class="tip">Рамка — что попадёт в картину:
+       двигайте её, тяните за уголок.</div>
+  </div>
+  <div class="setup-grid">
+    <div>
+      <h3>Размер</h3>
+      <div id="fmt-radios" class="radios"></div>
+      <div class="orient">
+        <label><input type="radio" name="orient" value="portrait" checked>
+               книжная</label>
+        <label><input type="radio" name="orient" value="landscape">
+               альбомная</label>
+      </div>
+      <p id="fmt-info" class="meta"></p>
+    </div>
+    <div>
+      <h3>Цвета</h3>
+      <div id="lvl-radios" class="radios"></div>
+      <p class="meta">Чем больше цветов, тем точнее передача
+         оттенков — и тем дольше плетение.</p>
+    </div>
+  </div>
+  <button id="build" class="run" type="button">Собрать картину</button>
+</section>
+
+<section id="step-edit" class="card hidden">
+  <h2>3. Поправьте детали</h2>
+  <div class="edit-side">
+    <div id="palette" class="palette"></div>
+    <div class="tools">
+      <button id="tool-paint" class="tbtn active" type="button"
+              title="Клик по клетке красит выбранным цветом">Кисть</button>
+      <button id="tool-revert" class="tbtn" type="button"
+              title="Возвращает клетке исходный цвет">Вернуть цвет</button>
+      <button id="undo" class="tbtn" type="button" title="Ctrl+Z">↶ Отмена</button>
+      <button id="redo" class="tbtn" type="button" title="Ctrl+Y">↷ Повтор</button>
+      <button id="reset-edits" class="tbtn" type="button">Сбросить правки</button>
+    </div>
+  </div>
+  <div class="zoombar">
+    <button id="zoom-out" type="button">−</button>
+    <span id="zoom-val">12 px</span>
+    <button id="zoom-in" type="button">+</button>
+    <button id="zoom-fit" type="button">по ширине</button>
+    <span class="meta" id="edited-info"></span>
+  </div>
+  <div id="edit-scroll" class="edit-scroll"><canvas id="edit-canvas"></canvas></div>
+  <p class="row">
+    <button id="to-render" class="run" type="button">Готово — показать
+      рендер и цену</button>
+  </p>
+</section>
+
+<section id="step-final" class="card hidden">
+  <h2>4. Результат</h2>
+  <div class="render-wrap"><img id="render-img" alt="Рендер картины из бисера"></div>
+  <div class="price-box">
+    <div id="price" class="price"></div>
+    <div id="price-meta" class="meta"></div>
+  </div>
+  <form id="order-form" class="order-form">
+    <label>Ваше имя
+      <input name="name" required maxlength="100" autocomplete="name">
+    </label>
+    <label>Контакт (телефон / Telegram / e-mail)
+      <input name="contact" required maxlength="200">
+    </label>
+    <label>Комментарий
+      <textarea name="comment" maxlength="1000"
+                placeholder="пожелания, сроки…"></textarea>
+    </label>
+    <button class="run" type="submit">Заказать</button>
+  </form>
+  <div id="order-ok" class="run-result ok hidden"></div>
+  <p class="row"><button id="restart" class="minor" type="button">Начать
+    заново</button></p>
+</section>
+
+<footer class="meta">2N · украшения ручной работы из бисера ·
+<a href="https://2n-beads.art" rel="noopener">2n-beads.art</a></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
