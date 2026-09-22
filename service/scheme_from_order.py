@@ -24,6 +24,11 @@ SRV = Path(__file__).resolve().parent
 ORDERS = SRV / "orders"
 RENDER_PY = SRV.parent / "picher" / "render.py"
 
+# физика плетения — из service/config.json (шаг сетки и диаметр кружка)
+_CFG = json.loads((SRV / "config.json").read_text(encoding="utf-8"))
+PITCH_MM = float(_CFG.get("pitch_mm") or 1.5)
+CIRCLE_D_MM = float(_CFG.get("circle_d_mm") or 1.2)
+
 
 def _render_mod():
     """Модуль picher/render.py (печатные схемы, без Pillow)."""
@@ -48,7 +53,7 @@ def make_scheme(order_dir: Path, mod) -> None:
         data, name=f"заказ_{num}",
         title=f"Заказ №{num} · {order['format']} · {order['level_label']}"
               f" · {order['name']}",
-        pitch_mm=4.5, circle_d_mm=3.0, out_dir=out)
+        pitch_mm=PITCH_MM, circle_d_mm=CIRCLE_D_MM, out_dir=out)
     print(f"заказ {num}: {files['main']} + "
           f"{len(files['singles'])} одноцветных")
 

@@ -182,6 +182,7 @@ def api_config():
         formats={k: {"cols": v[0], "rows": v[1], "label": v[2]}
                  for k, v in FORMATS.items()},
         levels=CFG["levels"],
+        pitch_mm=float(CFG["pitch_mm"]),
         upload_max_mb=int(CFG["upload_max_mb"]))
 
 

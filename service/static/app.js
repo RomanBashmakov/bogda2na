@@ -108,7 +108,7 @@ function selectFmt() {
   const [c, r] = gridDims();
   const f = cfg.formats[fmt];
   $("fmt-info").textContent =
-    `${f.label} · ${c}×${r} бисерин · всего ${c * r} шт · шаг 4.5 мм`;
+    `${f.label} · ${c}×${r} бисерин · всего ${c * r} шт · шаг ${cfg.pitch_mm} мм`;
   if (img) initCrop();
 }
 

@@ -168,7 +168,7 @@ def _watermark(img, text, opacity):
 def render_picture(colors, cells, cols, rows, watermark=None):
     """Финальный рендер: бисер в паспарту и раме (+ водяной знак)."""
     rgb = _check(colors, cells, cols, rows)
-    s = max(7, min(18, 1500 // max(cols, rows)))      # px на бисерину
+    s = max(7, min(18, 1600 // max(cols, rows)))      # px на бисерину
     fw = max(30, s * 4)                               # ширина рамы
     mw = max(26, s * 3)                               # паспарту
     w, h = cols * s, rows * s
