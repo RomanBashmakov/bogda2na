@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; font: 14px system-ui, sans-serif; }
+body { display: flex; flex-direction: column; }
+
+#topbar, #bottombar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: #f4f1ea; border-bottom: 1px solid #ccc;
+  flex-wrap: wrap;
+}
+#bottombar { border-bottom: none; border-top: 1px solid #ccc; }
+.spacer { flex: 1; }
+.sep { border-left: 1px solid #bbb; height: 22px; }
+button { padding: 5px 12px; cursor: pointer; }
+button.primary { background: #7a4dbb; color: #fff; border: none; border-radius: 4px; }
+input[type=number] { width: 5.5em; }
+
+#main { flex: 1; display: flex; min-height: 0; }
+#panel3d { flex: 1; position: relative; min-width: 300px; border-right: 1px solid #ccc; }
+#panel2d { flex: 1; position: relative; min-width: 300px; overflow: auto; background: #fff; }
+.hint { position: absolute; top: 6px; left: 8px; z-index: 2; font-size: 12px; color: #777;
+  background: rgba(255,255,255,.7); padding: 2px 6px; border-radius: 4px; }
+#c3d { width: 100%; height: 100%; display: block; touch-action: none; }
+#c2d { display: block; margin: 8px; }
+
+#palette { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch {
+  width: 34px; height: 34px; border-radius: 6px; border: 2px solid transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 11px; text-shadow: 0 0 2px #000; cursor: pointer;
+}
+.swatch.active { border-color: #333; box-shadow: 0 0 0 2px #fff inset; }
+#stat { font-size: 12px; color: #666; }
+
+/* Печать */
+#printArea { display: none; }
+@media print {
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block; }
+  .pr-row { display: flex; align-items: center; margin: 0 0 2px; }
+  .pr-bead {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid #000; display: flex; align-items: center; justify-content: center;
+    font-size: 7px; margin-right: 2px; page-break-inside: avoid;
+  }
+  .pr-bead.small { border-style: dashed; }
+  #prLegend span { display: inline-block; margin: 0 12px 4px 0; }
+  #prLegend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    border: 1px solid #000; vertical-align: -2px; margin-right: 4px; }
+}

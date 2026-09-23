@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>d3Sc — бисерная сфера (мозаичное плетение)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topbar">
+  <b>d3Sc</b> — сфера из бисера, мозаичное плетение
+  <span class="spacer"></span>
+  <label>Бусина, мм <input id="ballMm" type="number" min="5" max="60" step="0.5" value="14.5"></label>
+  <label title="Сколько средних рядов Delica по «пояску» бусины">Средних рядов Delica <input id="midRows" type="number" min="1" max="40" value="11"></label>
+  <button id="btnGen">Сгенерировать</button>
+  <button id="btnSave">Сохранить JSON</button>
+  <button id="btnLoad">Открыть JSON</button>
+  <button id="btnPng">Снимок 3D (PNG)</button>
+  <button id="btnPrint" class="primary">Печать схемы</button>
+  <input type="file" id="fileJson" accept=".json" hidden>
+</header>
+
+<div id="main">
+  <section id="panel3d">
+    <div class="hint">3D: вращение — мышью, зум — колесом, клик по бисерине — выбор</div>
+    <canvas id="c3d"></canvas>
+  </section>
+  <section id="panel2d">
+    <div class="hint">2D-развёртка: клик по бисерине — выбор. Ряды от полюса вниз.</div>
+    <canvas id="c2d"></canvas>
+  </section>
+</div>
+
+<footer id="bottombar">
+  <span id="paletteLbl">Палитра (коробочки):</span>
+  <div id="palette"></div>
+  <label>Цвет <input type="color" id="newColor" value="#c22a1e"></label>
+  <label>Коробочка № <input id="newBox" type="number" min="1" max="999" value="1" style="width:4em"></label>
+  <button id="btnAddColor">+ цвет</button>
+  <button id="btnDelColor" title="Удалить последний цвет">−</button>
+  <span class="sep"></span>
+  <label><input type="checkbox" id="selSmall"> выбранной бисерине — мелкий бисер</label>
+  <span id="stat" class="spacer"></span>
+</footer>
+
+<!-- Печатная схема -->
+<div id="printArea">
+  <h1 id="prTitle">Сфера из бисера — мозаичное плетение</h1>
+  <p id="prMeta"></p>
+  <div id="prGrid"></div>
+  <div id="prLegend"></div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
