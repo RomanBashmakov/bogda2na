@@ -9,7 +9,7 @@
 <header id="topbar">
   <b>d3Sc</b> — сфера из бисера, мозаичное плетение
   <span class="spacer"></span>
-  <label>Бусина, мм <input id="ballMm" type="number" min="5" max="60" step="0.5" value="14.5"></label>
+  <label title="Стартовый диаметр обжатия: итоговый размер определяет плетение (см. статус)">Бусина, мм <input id="ballMm" type="number" min="5" max="60" step="0.5" value="14.5"></label>
   <label title="Сколько средних рядов Delica по «пояску» бусины">Средних рядов Delica <input id="midRows" type="number" min="1" max="40" value="11"></label>
   <button id="btnGen">Сгенерировать</button>
   <button id="btnSave">Сохранить JSON</button>
@@ -39,6 +39,9 @@
   <button id="btnDelColor" title="Удалить последний цвет">−</button>
   <span class="sep"></span>
   <label><input type="checkbox" id="selSmall"> выбранной бисерине — мелкий бисер</label>
+  <span class="sep"></span>
+  <label title="Подсветка режима нити: красный — натянуто (касание), зелёный — расслаблено (зазор до 10% радиуса бусины)"><input type="checkbox" id="tension"> натяжение</label>
+  <span id="tensLegend"><i></i>натянуто&nbsp;→&nbsp;расслаблено</span>
   <span id="stat" class="spacer"></span>
 </footer>
 

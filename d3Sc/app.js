@@ -31,27 +31,52 @@ const rowC = r => r.beads.reduce((a, b) => a + BEAD[b.s].w, 0);
 const colR = b => (BEAD[b.s].w + BEAD[b.s].h) / 4;
 
 
-// ================= физическая укладка (релаксация) =================
-// 1) стартовые позиции: ряды-кольца на бусине, мозаичный сдвиг на полшага
-// 2) связи «нити»: каждая бисерина связана с двумя ближайшими бисеринами
-//    соседнего ряда (пейот), целевая дистанция = касание (w_a+w_b)/2
-// 3) итерации: пружины + жёсткое непроникновение + бусина-ограничитель
+// ================= физическая укладка (PBD: проекции позиций) =================
+// Приоритеты ограничений: целевая сфера — сильно, непроникновение — жёстко,
+// нить — слабо. Связь нити асимметричная: сжатие (бисерины наезжают)
+// разводится жёстко, растяжение подтягивается слабо — где паттерну тесно,
+// там остаётся зазор, который распределяет сам решатель
+// («напрягающиеся» и «расслабляющиеся» места). Средний радиус НЕ
+// нормализуется: форма итогового изделия — сфера заданного размера.
+//
+// 1) стартовые позиции: ряды-кольца на сфере R + h/2, мозаичный сдвиг на полшага
+// 2) итерации: связи нити → ориентация капсул по соседям → коллизии → сфера
+// 3) финальная чистка: коллизии + сфера, без пружин
 function buildLayout(rows, Rball) {
   const flat = [];   // {row, idx, bead, p:[x,y,z]}
+  // экваторный ряд — середина блока самых длинных рядов
+  let maxC = -1;
+  rows.forEach(r => { maxC = Math.max(maxC, rowC(r)); });
+  const maxIdx = [];
+  rows.forEach((r, i) => { if (rowC(r) === maxC) maxIdx.push(i); });
+  const eq = maxIdx[Math.floor(maxIdx.length / 2)];
+  // θ ряда: широта, на которой длина нити кольца ложится в окружность сферы
+  // (ближе к полюсу ряд не поднимется — окружность мала); между фитами ряды
+  // расходятся стеком с шагом утопленного мозаичного ряда. Если ряды не
+  // помещаются между полюсами — шаг равномерно сжимается, а не сваливается
+  // в кучу на полюсе. Экватор центрируется на π/2.
+  const steps = [0];
+  rows.forEach((r, i) => {
+    if (!i) return;
+    const rc = Rball + BEAD[r.beads[0].s].h / 2;
+    steps.push(0.6 * (BEAD[rows[i - 1].beads[0].s].h + BEAD[r.beads[0].s].h) / 2 / rc);
+  });
+  const stack = k => {
+    let a = 0;
+    return rows.map((r, i) => {
+      const rc = Rball + BEAD[r.beads[0].s].h / 2;
+      const fit = Math.asin(Math.min(0.999, rowC(r) / (2 * Math.PI) / rc));
+      a = i ? a + steps[i] * k : fit;
+      if (i < eq) a = Math.min(a, Math.PI / 2); // нижняя половина — не выше экватора
+      return Math.max(i <= eq ? fit : Math.PI - fit, a);
+    });
+  };
+  let thArr = stack(1);
+  const last = thArr[thArr.length - 1];
+  if (last > Math.PI - 0.1) thArr = stack(Math.max(0.2, (Math.PI - 0.15 - thArr[0]) / (last - thArr[0])));
+  const shift = Math.PI / 2 - thArr[eq];
   rows.forEach((row, ri) => {
     const n = row.beads.length;
-    // θ: стек рядов по шагу укладки, экваторный ряд — на π/2
-    let eq = 0, maxC = -1;
-    rows.forEach((r, i) => { const C = rowC(r); if (C > maxC) { maxC = C; eq = i; } });
-    const thArr = [];
-    let a = 0;
-    rows.forEach((r, i) => {
-      const h = BEAD[r.beads[0].s].h;
-      if (i === 0) a = h / 2 / (Rball + h / 2);
-      else a += 0.87 * (BEAD[rows[i - 1].beads[0].s].h + h) / 2 / (Rball + h / 2);
-      thArr.push(a);
-    });
-    const shift = Math.PI / 2 - thArr[eq];
     row.th = Math.min(Math.PI - 0.05, Math.max(0.05, thArr[ri] + shift));
     row.beads.forEach((b, j) => {
       const rc = Rball + BEAD[b.s].h / 2;
@@ -93,37 +118,45 @@ function buildLayout(rows, Rball) {
   return { flat, links };
 }
 
-function relax(layout, rows, Rball, iters) {
-  const { flat, links } = layout;
-  const cell = 3.0; // ячейка сетки коллизий, мм
-  const thread = new Set();
-  for (const [a, b] of links) {
-    thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
-    thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
-  }
-  // капсульная модель бисерины: ось вдоль кольца, 2 сферы радиуса h/2
+// ориентация капсулы бисерины — вдоль нити кольца (по текущим соседям);
+// вызывается каждую итерацию: капсулы следуют за фактической укладкой
+function updateCaps(flat, rows) {
   for (const f of flat) {
-    f.r = BEAD[f.bead.s].h / 2;
-    const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
     const row = rows[f.row], n = row.beads.length;
     const prev = row.beads[(f.idx - 1 + n) % n].p, next = row.beads[(f.idx + 1) % n].p;
     let ux = next[0] - prev[0], uy = next[1] - prev[1], uz = next[2] - prev[2];
     const ul = Math.hypot(ux, uy, uz) || 1;
     ux /= ul; uy /= ul; uz /= ul;
     f.u = [ux, uy, uz];
+    const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
     f.caps = [
       [f.p[0] + ux * half, f.p[1] + uy * half, f.p[2] + uz * half],
       [f.p[0] - ux * half, f.p[1] - uy * half, f.p[2] - uz * half],
     ];
   }
+}
+
+// пошаговый решатель: step() — одна итерация, finish() — финальная чистка
+function makeSolver(layout, rows, Rball) {
+  const { flat, links } = layout;
+  const W_RING = 0.20;    // подтяжка растянутых связей внутри кольца
+  const W_PEYOTE = 0.10;  // подтяжка растянутых межрядных (пейот) связей
+  const W_PUSH = 0.20;    // развод сжатых внутрикольцевых связей (слабее коллизий)
+  const COL_PUSH = 0.50;  // выталкивание в коллизиях — сильнейшая коррекция
+  const SPH = 0.45;       // мягкое округление виртуальной сферой
+  const NEST = 0.25;      // мм, допуск утапливания для пар одной нити
+  const thread = new Set();
+  for (const [a, b] of links) {
+    thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
+    thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
+  }
+  for (const f of flat) f.r = BEAD[f.bead.s].h / 2;
+  updateCaps(flat, rows);
+  const cell = 3.0; // ячейка сетки коллизий, мм
   const gkey = (x, y, z) => (Math.floor(x / cell) + 500) * 1e6 +
     (Math.floor(y / cell) + 500) * 1e3 + (Math.floor(z / cell) + 500);
-  // зафиксировать масштаб: средний радиус оплётки не должен меняться
-  let meanR0 = 0;
-  for (const f of flat) meanR0 += Math.hypot(...f.p);
-  meanR0 /= flat.length;
+  // непроникновение капсул (по пространственной сетке)
   const resolveCollisions = () => {
-    // непроникновение капсул (по пространственной сетке)
     const grid = new Map();
     for (const f of flat) for (const c of f.caps) {
       const k = gkey(c[0], c[1], c[2]);
@@ -137,17 +170,16 @@ function relax(layout, rows, Rball, iters) {
         if (!bucket) continue;
         for (const [g, cg] of bucket) {
           if (g === f) continue;
-          if (g.row === f.row) {
-            const n = rows[f.row].beads.length;
-            const md = Math.min((f.idx - g.idx + n) % n, (g.idx - f.idx + n) % n);
-            if (md <= 1) continue;
-          }
-          if (thread.has(f.row + ':' + f.idx + '-' + g.row + ':' + g.idx)) continue;
+          // коллизии действуют на ВСЕ пары, включая пары одной нити
+          // (кольцо/пейот): без жёсткого пола расстояния сжатые кольца
+          // сминаются внахлёст («утопленные» бисерины). Нитевым парам
+          // даём малый допуск утапливания, как в реальном плетении.
+          const linked = thread.has(f.row + ':' + f.idx + '-' + g.row + ':' + g.idx);
           const ex = cg[0] - cf[0], ey = cg[1] - cf[1], ez = cg[2] - cf[2];
           const d = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1e-6;
-          const t = f.r + g.r;
+          const t = f.r + g.r - (linked ? NEST : 0);
           if (d < t) {
-            const push = (t - d) / d * 0.5;
+            const push = (t - d) / d * COL_PUSH;
             const mx = ex * push, my = ey * push, mz = ez * push;
             f.p[0] -= mx; f.p[1] -= my; f.p[2] -= mz;
             g.p[0] += mx; g.p[1] += my; g.p[2] += mz;
@@ -158,59 +190,62 @@ function relax(layout, rows, Rball, iters) {
       }
     }
   };
-  for (let it = 0; it < iters; it++) {
-    // пружины нити
+  // виртуальная сфера обжатия: радиус = max(введённый старт, оценка
+  // минимума по площади бисера — площадь колец × 0.8 с учётом частичного
+  // утапливания рядов). Размер задаёт само плетение, сфера лишь мягко
+  // округляет форму; жёсткого натягивания на бусину нет.
+  let area = 0;
+  for (const f of flat) area += BEAD[f.bead.s].w * BEAD[f.bead.s].h;
+  const Rv = Math.max(Rball, Math.sqrt(area * 0.8 / (4 * Math.PI)) - BEAD[0].h / 2);
+  // сфера-оболочка: центры на Rv + h/2 (мелкий бисер сидит глубже);
+  // и не провалиться внутрь, и не улететь наружу
+  const toSphere = () => {
+    for (const f of flat) {
+      const r0 = Rv + BEAD[f.bead.s].h / 2;
+      const d = Math.hypot(f.p[0], f.p[1], f.p[2]) || 1e-6;
+      const k = 1 + (r0 / d - 1) * SPH;
+      f.p[0] *= k; f.p[1] *= k; f.p[2] *= k;
+    }
+  };
+  const step = () => {
+    // связи нити: кольцо — двустороннее (сжатие жёстко, растяжение слабо),
+    // пейот — только подтяжка с люфтом 0.1 мм (нить слегка растяжима:
+    // в тесных местах ход отдаётся коллизиям, чтобы не давить бисерины)
     for (const [a, b, t] of links) {
       const dx = b.p[0] - a.p[0], dy = b.p[1] - a.p[1], dz = b.p[2] - a.p[2];
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
-      const err = (d - t) / d * 0.15;
+      if (a.row !== b.row && d < t + 0.1) continue;
+      const w = d < t ? W_PUSH : (a.row === b.row ? W_RING : W_PEYOTE);
+      const err = (d - t) / d * w;
       const mx = dx * err, my = dy * err, mz = dz * err;
       a.p[0] += mx; a.p[1] += my; a.p[2] += mz;
       b.p[0] -= mx; b.p[1] -= my; b.p[2] -= mz;
     }
-    // обновить капсулы
-    for (const f of flat) {
-      const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
-      f.caps[0] = [f.p[0] + f.u[0] * half, f.p[1] + f.u[1] * half, f.p[2] + f.u[2] * half];
-      f.caps[1] = [f.p[0] - f.u[0] * half, f.p[1] - f.u[1] * half, f.p[2] - f.u[2] * half];
+    updateCaps(flat, rows);
+    resolveCollisions();
+    resolveCollisions();
+    toSphere();
+  };
+  const finish = () => {
+    // порядок: сначала сфера, коллизии — последними: финальное слово
+    // за непроникновением (приоритетнее точного радиуса)
+    for (let k = 0; k < 80; k++) {
+      toSphere();
+      updateCaps(flat, rows);
+      resolveCollisions();
+      resolveCollisions();
     }
-    // непроникновение капсул — два прохода
-    resolveCollisions();
-    resolveCollisions();
-    // бусина как упор: только не даём провалиться внутрь (мягко)
-    for (const f of flat) {
-      const h = BEAD[f.bead.s].h;
-      const d = Math.sqrt(f.p[0] ** 2 + f.p[1] ** 2 + f.p[2] ** 2) || 1;
-      const rMin = Rball + h / 2;
-      if (d < rMin) {
-        const k = 1 + (rMin / d - 1) * 0.2;
-        f.p[0] *= k; f.p[1] *= k; f.p[2] *= k;
-      }
-    }
-    // форма: нормализация среднего радиуса (анти-сплющивание)
-    let meanR = 0;
-    for (const f of flat) meanR += Math.hypot(...f.p);
-    meanR = meanR / flat.length || 1;
-    const k = meanR0 / meanR;
-    for (const f of flat) { f.p[0] *= k; f.p[1] *= k; f.p[2] *= k; }
-  }
-  // финальная чистка: только непроникновение, без пружин
-  for (let k = 0; k < 300; k++) {
-    for (const f of flat) {
-      const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
-      f.caps[0] = [f.p[0] + f.u[0] * half, f.p[1] + f.u[1] * half, f.p[2] + f.u[2] * half];
-      f.caps[1] = [f.p[0] - f.u[0] * half, f.p[1] - f.u[1] * half, f.p[2] - f.u[2] * half];
-    }
-    resolveCollisions();
-    resolveCollisions();
-    let meanR = 0;
-    for (const f of flat) meanR += Math.hypot(...f.p);
-    meanR = meanR / flat.length || 1;
-    const k = meanR0 / meanR;
-    for (const f of flat) { f.p[0] *= k; f.p[1] *= k; f.p[2] *= k; }
-  }
-  // записать позиции в модель
-  for (const f of flat) rows[f.row].beads[f.idx].p = f.p;
+  };
+  return { step, finish, Rv: () => Rv };
+}
+
+// пакетная укладка (правки размера бисерин, загрузка JSON);
+// возвращает фактический радиус виртуальной сферы
+function relax(layout, rows, Rball, iters) {
+  const s = makeSolver(layout, rows, Rball);
+  for (let i = 0; i < iters; i++) s.step();
+  s.finish();
+  return s.Rv();
 }
 
 // вписанная бусина: максимальный шар, помещающийся под оплёткой
@@ -222,12 +257,35 @@ function innerBall(rows) {
   return Math.max(1, R);
 }
 
-// пересчёт укладки на текущих позициях (после ручной смены размера бисерины)
+// натяжение: для каждой бисерины — максимальный зазор её связей нити (мм)
+function computeTension() {
+  state.tens = null;
+  const m = state.model;
+  if (!m || !state.layout) return;
+  const t = m.rows.map(r => r.beads.map(() => 0));
+  for (const [a, b, tgt] of state.layout.links) {
+    const err = Math.hypot(b.p[0] - a.p[0], b.p[1] - a.p[1], b.p[2] - a.p[2]) - tgt;
+    if (err > t[a.row][a.idx]) t[a.row][a.idx] = err;
+    if (err > t[b.row][b.idx]) t[b.row][b.idx] = err;
+  }
+  state.tens = t;
+}
+
+// цвет натяжения: красный — нить натянута (касание), зелёный — расслаблена
+function tensColor(ri, j) {
+  const gapMax = 0.1 * state.model.R; // 10% радиуса бусины = «полностью расслаблено»
+  const x = state.tens ? Math.max(0, Math.min(1, state.tens[ri][j] / gapMax)) : 0;
+  return `hsl(${Math.round(120 * x)}, 72%, 48%)`;
+}
+
+// пересчёт укладки (после ручной смены размера бисерины) — мгновенно, пакетом
 function reRelax(iters) {
   const m = state.model;
   if (!m) return;
-  const layout = buildLayout(m.rows, m.R);
-  relax(layout, m.rows, m.R, iters || 120);
+  relaxAnim = null; // прервать анимацию генерации, если идёт
+  state.layout = buildLayout(m.rows, m.R);
+  m.Rres = relax(state.layout, m.rows, m.R, iters || 300);
+  computeTension();
 }
 
 
@@ -239,12 +297,17 @@ const DEF_COLORS = [
   { c: '#d8a013', b: 4 },
 ];
 
+let relaxAnim = null; // идущая анимация укладки (текущая frame-функция)
+
 const state = {
   palette: DEF_COLORS.map(x => ({ ...x })),
   activeColor: 0,
   small: false,           // что ставится кликом
   sel: null,              // {row, idx}
   model: null,
+  layout: null,           // {flat, links} последней укладки
+  tens: null,             // натяжение: [row][idx] -> зазор связи, мм
+  showTension: false,     // подсветка натяжения
 };
 
 function beadCount(m) { return m.rows.reduce((a, r) => a + r.beads.length, 0); }
@@ -258,13 +321,39 @@ function generate(ballMm, middle) {
     beads: r.sizes.map(s => ({ c: 0, s })),
   }));
   const R = ballMm / 2;
-  relax(buildLayout(rows, R), rows, R, 500);
-  state.model = { R: innerBall(rows), middle, rows };
+  state.model = { R, middle, rows, Rres: null };
   state.sel = null;
+  state.layout = buildLayout(rows, R);
+  state.tens = null;
   rebuild3D();
   updateCam();
   draw2D();
   updateStat();
+  animateRelax(600);
+}
+
+// анимация укладки при генерации: оплётка садится на сферу на глазах
+// (кадр = 12 итераций решателя); правки и загрузка JSON — пакетно, без анимации
+function animateRelax(totalIters) {
+  relaxAnim = null;
+  const solver = makeSolver(state.layout, state.model.rows, state.model.R);
+  let done = 0;
+  const frame = () => {
+    if (relaxAnim !== frame) return; // отменена (новая генерация или правка)
+    for (let k = 0; k < 12 && done < totalIters; k++, done++) solver.step();
+    refreshBeadMatrices();
+    if (done < totalIters) requestAnimationFrame(frame);
+    else {
+      solver.finish();
+      relaxAnim = null;
+      state.model.Rres = solver.Rv();
+      computeTension();
+      refreshBeadMatrices();
+      updateCam(); draw2D(); updateStat();
+    }
+  };
+  relaxAnim = frame;
+  requestAnimationFrame(frame);
 }
 // ================= 3D =================
 let renderer, scene, camera, meshes, beadList, selMarker, ballMesh, rot = { x: 0.4, y: 0 }, drag = null;
@@ -351,7 +440,7 @@ function rebuild3D() {
   if (meshes) meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
   const m = state.model;
   meshes = []; beadList = [];
-  if (ballMesh) ballMesh.scale.setScalar(m.R);
+  if (ballMesh) ballMesh.scale.setScalar(innerBall(m.rows));
   for (const s of [0, 1]) {
     const list = [];
     m.rows.forEach((row, ri) => row.beads.forEach((b, j) => {
@@ -371,12 +460,33 @@ function rebuild3D() {
       dummy.scale.set(BEAD[it.b.s].h / 2, BEAD[it.b.s].w / 2, BEAD[it.b.s].h / 2);
       dummy.updateMatrix();
       im.setMatrixAt(k, dummy.matrix);
-      im.setColorAt(k, col.set(state.palette[it.b.c].c));
+      im.setColorAt(k, state.showTension && state.tens
+        ? col.setStyle(tensColor(it.ri, it.j))
+        : col.set(state.palette[it.b.c].c));
       beadList.push({ ri: it.ri, j: it.j, mesh: im, inst: k, v });
     });
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
     scene.add(im); meshes.push(im);
   }
+}
+
+// обновить матрицы инстансов из текущих позиций модели (без пересборки)
+function refreshBeadMatrices() {
+  const m = state.model;
+  if (!m || !meshes) return;
+  const dummy = new THREE.Object3D(), up = new THREE.Vector3(0, 1, 0);
+  for (const rec of beadList) {
+    const b = m.rows[rec.ri].beads[rec.j];
+    const { east, v } = beadPos(m, rec.ri, rec.j);
+    rec.v = v;
+    dummy.position.copy(v);
+    dummy.quaternion.setFromUnitVectors(up, east);
+    dummy.scale.set(BEAD[b.s].h / 2, BEAD[b.s].w / 2, BEAD[b.s].h / 2);
+    dummy.updateMatrix();
+    rec.mesh.setMatrixAt(rec.inst, dummy.matrix);
+  }
+  meshes.forEach(im => { im.instanceMatrix.needsUpdate = true; });
+  if (ballMesh) ballMesh.scale.setScalar(innerBall(m.rows));
 }
 
 // перекраска одной бисерины без пересборки
@@ -460,7 +570,8 @@ function draw2D() {
       const x = xs[j];
       const r = BEAD[b.s].w * pxmm * 0.48;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = state.palette[b.c].c; ctx.fill();
+      ctx.fillStyle = state.showTension && state.tens ? tensColor(ri, j) : state.palette[b.c].c;
+      ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = b.s ? '#888' : '#000';
       if (b.s) ctx.setLineDash([2, 2]);
@@ -470,7 +581,8 @@ function draw2D() {
         ctx.strokeStyle = '#00c000'; ctx.lineWidth = 2.5; ctx.stroke();
       }
       if (r >= 5) {
-        ctx.fillStyle = '#000'; ctx.font = `${Math.max(7, Math.floor(r))}px sans-serif`;
+        ctx.fillStyle = state.showTension && state.tens ? '#fff' : '#000';
+        ctx.font = `${Math.max(7, Math.floor(r))}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(state.palette[b.c].b, x, y);
       }
@@ -511,14 +623,22 @@ function renderPalette() {
 function updateStat() {
   const m = state.model;
   if (!m) { document.getElementById('stat').textContent = ''; return; }
-  let small = 0, maxR = 0;
+  let small = 0, maxY = -1e9, minY = 1e9, maxXY = 0;
   m.rows.forEach(r => r.beads.forEach(b => {
     if (b.s) small++;
-    maxR = Math.max(maxR, Math.hypot(...b.p));
+    maxY = Math.max(maxY, b.p[1]); minY = Math.min(minY, b.p[1]);
+    maxXY = Math.max(maxXY, Math.hypot(b.p[0], b.p[2]));
   }));
+  let gap = '';
+  if (state.tens) {
+    let g = 0;
+    state.tens.forEach(r => r.forEach(v => { if (v > g) g = v; }));
+    gap = `, макс. зазор нити ${g.toFixed(2)} мм`;
+  }
   document.getElementById('stat').textContent =
     `рядов: ${m.rows.length}, бисерин: ${beadCount(m)} (15/0 — ${small}), ` +
-    `итог ⌀ ${(2 * maxR).toFixed(1)} мм (бусина ⌀ ${(2 * m.R).toFixed(1)}, средних рядов Delica: ${m.middle})`;
+    `модель ⌀ ${(2 * maxXY).toFixed(1)} × ${(maxY - minY).toFixed(1)} мм, ` +
+    `вписанная бусина ⌀ ${(2 * innerBall(m.rows)).toFixed(1)}${gap}`;
 }
 
 function saveJSON() {
@@ -551,9 +671,11 @@ function loadJSON(file) {
           th: r.th || 0, beads: r.beads.map(a => ({ c: a[0], s: a[1], p: [0, 0, 0] })),
         })),
       };
-      // восстановить физическую укладку
-      relax(buildLayout(state.model.rows, d.R), state.model.rows, d.R, 500);
-      state.model.R = innerBall(state.model.rows);
+      // восстановить физическую укладку — мгновенно, пакетом
+      relaxAnim = null;
+      state.layout = buildLayout(state.model.rows, d.R);
+      state.model.Rres = relax(state.layout, state.model.rows, d.R, 500);
+      computeTension();
       state.sel = null;
       renderPalette(); rebuild3D(); updateCam(); draw2D(); updateStat();
     } catch (e) { alert('Не удалось открыть: ' + e.message); }
@@ -639,6 +761,10 @@ document.getElementById('btnDelColor').onclick = () => {
 document.getElementById('selSmall').onchange = e => {
   state.small = e.target.checked;
   if (state.sel) editBead(state.sel.row, state.sel.idx);
+};
+document.getElementById('tension').onchange = e => {
+  state.showTension = e.target.checked;
+  if (state.model) { rebuild3D(); draw2D(); }
 };
 
 init3D();
