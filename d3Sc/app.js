@@ -5,9 +5,11 @@
 'use strict';
 
 // ---- Калибры бисера, мм (ширина вдоль нити × высота поперёк) ----
+// подобраны так, чтобы паттерн из site.txt (16 Delica на экваторе)
+// плотно садился на бусину ~14–15 мм
 const BEAD = {
-  0: { w: 2.2, h: 2.5 },   // крупный, цилиндр Delica 11/0
-  1: { w: 1.3, h: 1.5 },   // мелкий, круглый 15/0
+  0: { w: 2.8, h: 2.6 },   // крупный цилиндр (Delica)
+  1: { w: 1.7, h: 1.9 },   // мелкий круглый (15/0)
 };
 
 // Паттерн оплетения бусины (по site.txt): пары/одиночки Delica и 15/0,
@@ -22,64 +24,212 @@ function patternRows(middle) {
   return seq.map(([sz, n]) => ({ sizes: Array(n).fill(sz) }));
 }
 
-// Геометрия кольца ряда: радиус центральной линии и центры бисерин по φ.
-// Бисерины в кольце размещаются равномерно, шаг >= ширины бисерины
-// (касание без наложений).
-function ringGeom(row, R) {
-  const ws = row.beads.map(b => BEAD[b.s].w);
-  const hmax = Math.max(...row.beads.map(b => BEAD[b.s].h));
-  const rc = R + hmax / 2;
-  const C = 2 * Math.PI * rc * Math.sin(row.th);
-  const n = ws.length;
-  const gap = Math.max(0, (C - ws.reduce((a, x) => a + x, 0)) / n);
-  let acc = 0;
-  const cent = ws.map(w => { const c = acc + (w + gap) / 2; acc += w + gap; return c / rc / Math.sin(row.th); });
-  return { rc, C, cent };
-}
-
-// Углы θ рядов: кольцо ряда садится на бусину так, что его окружность
-// равна суммарной ширине бисерин (asin), ряды не ближе шага (h_i+h_j)/2.
-// Если ряды не помещаются на бусину — fitBall увеличивает радиус.
 const rowH = r => BEAD[r.beads[0].s].h;
 const rowC = r => r.beads.reduce((a, b) => a + BEAD[b.s].w, 0);
-// мозаичное переплетение: соседние ряды утапливаются друг в друга,
-// фактический шаг меньше (h_i+h_j)/2
-const NEST = 0.55;
-const rowPitch = (a, b, R) => NEST * (rowH(a) + rowH(b)) / 2 / (R + (rowH(a) + rowH(b)) / 4);
-const alpha_i = (r, R) => Math.asin(Math.min(1, rowC(r) / (2 * Math.PI * (R + rowH(r) / 2))));
 
-// возвращает { th, ok } — ok=false, если ряды наезжают друг на друга
-function layoutThetas(rows, R) {
-  const n = rows.length;
-  const up = new Array(n), down = new Array(n);
-  for (let i = 0; i < n; i++) {
-    const nat = alpha_i(rows[i], R);
-    up[i] = i === 0 ? nat : Math.max(nat, up[i - 1] + rowPitch(rows[i - 1], rows[i], R));
+// коллизионный радиус бисерины (грубая модель цилиндра сферой)
+const colR = b => (BEAD[b.s].w + BEAD[b.s].h) / 4;
+
+
+// ================= физическая укладка (релаксация) =================
+// 1) стартовые позиции: ряды-кольца на бусине, мозаичный сдвиг на полшага
+// 2) связи «нити»: каждая бисерина связана с двумя ближайшими бисеринами
+//    соседнего ряда (пейот), целевая дистанция = касание (w_a+w_b)/2
+// 3) итерации: пружины + жёсткое непроникновение + бусина-ограничитель
+function buildLayout(rows, Rball) {
+  const flat = [];   // {row, idx, bead, p:[x,y,z]}
+  rows.forEach((row, ri) => {
+    const n = row.beads.length;
+    // θ: стек рядов по шагу укладки, экваторный ряд — на π/2
+    let eq = 0, maxC = -1;
+    rows.forEach((r, i) => { const C = rowC(r); if (C > maxC) { maxC = C; eq = i; } });
+    const thArr = [];
+    let a = 0;
+    rows.forEach((r, i) => {
+      const h = BEAD[r.beads[0].s].h;
+      if (i === 0) a = h / 2 / (Rball + h / 2);
+      else a += 0.87 * (BEAD[rows[i - 1].beads[0].s].h + h) / 2 / (Rball + h / 2);
+      thArr.push(a);
+    });
+    const shift = Math.PI / 2 - thArr[eq];
+    row.th = Math.min(Math.PI - 0.05, Math.max(0.05, thArr[ri] + shift));
+    row.beads.forEach((b, j) => {
+      const rc = Rball + BEAD[b.s].h / 2;
+      const phi = (j + (ri % 2) * 0.5) / n * 2 * Math.PI;
+      const p = [rc * Math.sin(row.th) * Math.cos(phi), rc * Math.cos(row.th),
+                 rc * Math.sin(row.th) * Math.sin(phi)];
+      b.p = p;
+      flat.push({ row: ri, idx: j, bead: b, p });
+    });
+  });
+  // индекс (row,idx) -> flat
+  const at = (ri, j) => flat[rows.slice(0, ri).reduce((acc, r) => acc + r.beads.length, 0) + j];
+  // связи нити: ребёнок (ряд i+1) -> 2 ближайших родителя (ряд i) по углу
+  const links = [];
+  const ang = f => Math.atan2(f.p[2], f.p[0]);
+  for (let ri = 1; ri < rows.length; ri++) {
+    const nCh = rows[ri].beads.length, nPar = rows[ri - 1].beads.length;
+    const parAng = [];
+    for (let j = 0; j < nPar; j++) parAng.push(ang(at(ri - 1, j)));
+    for (let j = 0; j < nCh; j++) {
+      const a = ang(at(ri, j));
+      const sorted = parAng.map((pa, pj) => [Math.abs((((a - pa) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI), pj])
+        .sort((x, y) => x[0] - y[0]);
+      const t = (BEAD[rows[ri].beads[j].s].w + BEAD[rows[ri - 1].beads[sorted[0][1]].s].w) / 2;
+      links.push([at(ri, j), at(ri - 1, sorted[0][1]), t]);
+      const t2 = (BEAD[rows[ri].beads[j].s].w + BEAD[rows[ri - 1].beads[sorted[1][1]].s].w) / 2;
+      links.push([at(ri, j), at(ri - 1, sorted[1][1]), t2]);
+    }
   }
-  for (let i = n - 1; i >= 0; i--) {
-    const nat = Math.PI - alpha_i(rows[i], R);
-    down[i] = i === n - 1 ? nat : Math.min(nat, down[i + 1] - rowPitch(rows[i], rows[i + 1], R));
-  }
-  let ok = true;
-  const th = new Array(n);
-  for (let i = 0; i < n; i++) {
-    if (down[i] < up[i]) ok = false;
-    th[i] = (up[i] + down[i]) / 2;
-  }
-  return { th, ok };
+  // соседи по кольцу: бисерины ряда касаются торцами
+  rows.forEach((row, ri) => {
+    const n = row.beads.length;
+    for (let j = 0; j < n; j++) {
+      const a = at(ri, j), b = at(ri, (j + 1) % n);
+      const t = (BEAD[row.beads[j].s].w + BEAD[row.beads[(j + 1) % n].s].w) / 2;
+      links.push([a, b, t]);
+    }
+  });
+  return { flat, links };
 }
 
-function fitBall(rows, R0) {
-  let R = R0;
-  rows.forEach(r => { R = Math.max(R, rowC(r) / (2 * Math.PI) - rowH(r) / 2); });
-  for (let it = 0; it < 500; it++) {
-    const { th, ok } = layoutThetas(rows, R);
-    if (ok) return { R, th };
-    R *= 1.02;   // не влезли — бусина чуть больше
+function relax(layout, rows, Rball, iters) {
+  const { flat, links } = layout;
+  const cell = 3.0; // ячейка сетки коллизий, мм
+  const thread = new Set();
+  for (const [a, b] of links) {
+    thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
+    thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
   }
-  const { th } = layoutThetas(rows, R);
-  return { R, th };
+  // капсульная модель бисерины: ось вдоль кольца, 2 сферы радиуса h/2
+  for (const f of flat) {
+    f.r = BEAD[f.bead.s].h / 2;
+    const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
+    const row = rows[f.row], n = row.beads.length;
+    const prev = row.beads[(f.idx - 1 + n) % n].p, next = row.beads[(f.idx + 1) % n].p;
+    let ux = next[0] - prev[0], uy = next[1] - prev[1], uz = next[2] - prev[2];
+    const ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    f.u = [ux, uy, uz];
+    f.caps = [
+      [f.p[0] + ux * half, f.p[1] + uy * half, f.p[2] + uz * half],
+      [f.p[0] - ux * half, f.p[1] - uy * half, f.p[2] - uz * half],
+    ];
+  }
+  const gkey = (x, y, z) => (Math.floor(x / cell) + 500) * 1e6 +
+    (Math.floor(y / cell) + 500) * 1e3 + (Math.floor(z / cell) + 500);
+  // зафиксировать масштаб: средний радиус оплётки не должен меняться
+  let meanR0 = 0;
+  for (const f of flat) meanR0 += Math.hypot(...f.p);
+  meanR0 /= flat.length;
+  const resolveCollisions = () => {
+    // непроникновение капсул (по пространственной сетке)
+    const grid = new Map();
+    for (const f of flat) for (const c of f.caps) {
+      const k = gkey(c[0], c[1], c[2]);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push([f, c]);
+    }
+    for (const f of flat) for (const cf of f.caps) {
+      const cx = Math.floor(cf[0] / cell), cy = Math.floor(cf[1] / cell), cz = Math.floor(cf[2] / cell);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const bucket = grid.get(gkey((cx + dx + 0.5) * cell, (cy + dy + 0.5) * cell, (cz + dz + 0.5) * cell));
+        if (!bucket) continue;
+        for (const [g, cg] of bucket) {
+          if (g === f) continue;
+          if (g.row === f.row) {
+            const n = rows[f.row].beads.length;
+            const md = Math.min((f.idx - g.idx + n) % n, (g.idx - f.idx + n) % n);
+            if (md <= 1) continue;
+          }
+          if (thread.has(f.row + ':' + f.idx + '-' + g.row + ':' + g.idx)) continue;
+          const ex = cg[0] - cf[0], ey = cg[1] - cf[1], ez = cg[2] - cf[2];
+          const d = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1e-6;
+          const t = f.r + g.r;
+          if (d < t) {
+            const push = (t - d) / d * 0.5;
+            const mx = ex * push, my = ey * push, mz = ez * push;
+            f.p[0] -= mx; f.p[1] -= my; f.p[2] -= mz;
+            g.p[0] += mx; g.p[1] += my; g.p[2] += mz;
+            cf[0] -= mx; cf[1] -= my; cf[2] -= mz;
+            cg[0] += mx; cg[1] += my; cg[2] += mz;
+          }
+        }
+      }
+    }
+  };
+  for (let it = 0; it < iters; it++) {
+    // пружины нити
+    for (const [a, b, t] of links) {
+      const dx = b.p[0] - a.p[0], dy = b.p[1] - a.p[1], dz = b.p[2] - a.p[2];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+      const err = (d - t) / d * 0.15;
+      const mx = dx * err, my = dy * err, mz = dz * err;
+      a.p[0] += mx; a.p[1] += my; a.p[2] += mz;
+      b.p[0] -= mx; b.p[1] -= my; b.p[2] -= mz;
+    }
+    // обновить капсулы
+    for (const f of flat) {
+      const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
+      f.caps[0] = [f.p[0] + f.u[0] * half, f.p[1] + f.u[1] * half, f.p[2] + f.u[2] * half];
+      f.caps[1] = [f.p[0] - f.u[0] * half, f.p[1] - f.u[1] * half, f.p[2] - f.u[2] * half];
+    }
+    // непроникновение капсул — два прохода
+    resolveCollisions();
+    resolveCollisions();
+    // бусина как упор: только не даём провалиться внутрь (мягко)
+    for (const f of flat) {
+      const h = BEAD[f.bead.s].h;
+      const d = Math.sqrt(f.p[0] ** 2 + f.p[1] ** 2 + f.p[2] ** 2) || 1;
+      const rMin = Rball + h / 2;
+      if (d < rMin) {
+        const k = 1 + (rMin / d - 1) * 0.2;
+        f.p[0] *= k; f.p[1] *= k; f.p[2] *= k;
+      }
+    }
+    // форма: нормализация среднего радиуса (анти-сплющивание)
+    let meanR = 0;
+    for (const f of flat) meanR += Math.hypot(...f.p);
+    meanR = meanR / flat.length || 1;
+    const k = meanR0 / meanR;
+    for (const f of flat) { f.p[0] *= k; f.p[1] *= k; f.p[2] *= k; }
+  }
+  // финальная чистка: только непроникновение, без пружин
+  for (let k = 0; k < 300; k++) {
+    for (const f of flat) {
+      const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
+      f.caps[0] = [f.p[0] + f.u[0] * half, f.p[1] + f.u[1] * half, f.p[2] + f.u[2] * half];
+      f.caps[1] = [f.p[0] - f.u[0] * half, f.p[1] - f.u[1] * half, f.p[2] - f.u[2] * half];
+    }
+    resolveCollisions();
+    resolveCollisions();
+    let meanR = 0;
+    for (const f of flat) meanR += Math.hypot(...f.p);
+    meanR = meanR / flat.length || 1;
+    const k = meanR0 / meanR;
+    for (const f of flat) { f.p[0] *= k; f.p[1] *= k; f.p[2] *= k; }
+  }
+  // записать позиции в модель
+  for (const f of flat) rows[f.row].beads[f.idx].p = f.p;
 }
+
+// вписанная бусина: максимальный шар, помещающийся под оплёткой
+function innerBall(rows) {
+  let R = 1e9;
+  rows.forEach(r => r.beads.forEach(b => {
+    R = Math.min(R, Math.hypot(...b.p) - BEAD[b.s].h / 2);
+  }));
+  return Math.max(1, R);
+}
+
+// пересчёт укладки на текущих позициях (после ручной смены размера бисерины)
+function reRelax(iters) {
+  const m = state.model;
+  if (!m) return;
+  const layout = buildLayout(m.rows, m.R);
+  relax(layout, m.rows, m.R, iters || 120);
+}
+
 
 
 const DEF_COLORS = [
@@ -107,9 +257,9 @@ function generate(ballMm, middle) {
     th: 0,
     beads: r.sizes.map(s => ({ c: 0, s })),
   }));
-  const { R, th } = fitBall(rows, ballMm / 2);
-  rows.forEach((r, i) => r.th = th[i]);
-  state.model = { R, middle, rows };
+  const R = ballMm / 2;
+  relax(buildLayout(rows, R), rows, R, 500);
+  state.model = { R: innerBall(rows), middle, rows };
   state.sel = null;
   rebuild3D();
   updateCam();
@@ -174,7 +324,11 @@ function resize3D() {
 }
 
 function updateCam() {
-  const R = state.model ? state.model.R : 20;
+  let R = 20;
+  if (state.model) {
+    R = 1;
+    state.model.rows.forEach(r => r.beads.forEach(b => { R = Math.max(R, Math.hypot(...b.p)); }));
+  }
   const d = R * 3.2;
   const cx = Math.cos(rot.x);
   camera.position.set(d * cx * Math.sin(rot.y), d * Math.sin(rot.x), d * cx * Math.cos(rot.y));
@@ -182,12 +336,15 @@ function updateCam() {
 }
 
 function beadPos(m, ri, j) {
-  const row = m.rows[ri], th = row.th;
-  const { cent } = ringGeom(row, m.R);
-  const phi = cent[j];
-  const rr = m.R + BEAD[row.beads[j].s].h / 2;
-  return { phi, v: new THREE.Vector3(
-    rr * Math.sin(th) * Math.cos(phi), rr * Math.cos(th), rr * Math.sin(th) * Math.sin(phi)) };
+  const row = m.rows[ri];
+  const p = row.beads[j].p;
+  // ось цилиндра — вдоль нити кольца (по соседям)
+  const n = row.beads.length;
+  const prev = row.beads[(j - 1 + n) % n].p, next = row.beads[(j + 1) % n].p;
+  const dir = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];
+  const dl = Math.hypot(...dir) || 1;
+  const east = new THREE.Vector3(dir[0] / dl, dir[1] / dl, dir[2] / dl);
+  return { east, v: new THREE.Vector3(p[0], p[1], p[2]) };
 }
 
 function rebuild3D() {
@@ -207,10 +364,9 @@ function rebuild3D() {
     im.userData.size = s;
     const dummy = new THREE.Object3D(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
     list.forEach((it, k) => {
-      const { phi, v } = beadPos(m, it.ri, it.j);
+      const { east, v } = beadPos(m, it.ri, it.j);
       dummy.position.copy(v);
-      // ось цилиндра (Y) вдоль касательной к окружности ряда (восток)
-      const east = new THREE.Vector3(-Math.sin(phi), 0, Math.cos(phi));
+      // ось цилиндра (Y) вдоль нити кольца
       dummy.quaternion.setFromUnitVectors(up, east);
       dummy.scale.set(BEAD[it.b.s].h / 2, BEAD[it.b.s].w / 2, BEAD[it.b.s].h / 2);
       dummy.updateMatrix();
@@ -270,7 +426,7 @@ function editBead(ri, j) {
   const sizeChanged = b.s !== (state.small ? 1 : 0);
   b.c = state.activeColor;
   b.s = state.small ? 1 : 0;
-  if (sizeChanged) rebuild3D(); else repaintBead(ri, j);
+  if (sizeChanged) { reRelax(150); rebuild3D(); } else repaintBead(ri, j);
   select({ row: ri, idx: j });
   updateStat();
 }
@@ -283,24 +439,26 @@ function draw2D() {
   const wrap = document.getElementById('panel2d');
   const W = Math.max(400, wrap.clientWidth - 20);
   if (!m) { c2d.width = W; c2d.height = 100; return; }
-  // масштаб: мм -> px по самому широкому ряду (по длине кольца)
-  const maxC = Math.max(...m.rows.map(r => ringGeom(r, m.R).C));
-  const pxmm = Math.min((W - 70) / maxC, 20 / BEAD[0].w);
-  const rh = BEAD[0].h * pxmm * 1.35;
+  // 2D — «плетёный» вид: бисерины ряда вплотную (порядок как в 3D-кольце)
+  const pxmm = Math.min((W - 70) / (16 * BEAD[0].w), 20 / BEAD[0].w);
+  const rh = BEAD[0].h * pxmm * 1.4;
   c2d.width = W; c2d.height = m.rows.length * rh + 30;
   ctx.clearRect(0, 0, c2d.width, c2d.height);
   d2 = { pxmm, rh, rows: [] };
   m.rows.forEach((row, ri) => {
     const y = 15 + ri * rh + rh / 2;
-    const { C, cent } = ringGeom(row, m.R);
-    const rowW = C * pxmm;
+    const rowW = rowC(row) * pxmm;
     const x0 = (W - rowW) / 2;
-    // центры бисерин — как в 3D (равномерно, без наложений)
-    const xs = row.beads.map((b, j) => x0 + cent[j] * rowW / (2 * Math.PI));
+    // позиции по кольцу: cumulative касание, старт с бисерины 0
+    const xs = [x0];
+    for (let j = 1; j < row.beads.length; j++) {
+      const gap = (BEAD[row.beads[j - 1].s].w + BEAD[row.beads[j].s].w) / 2 * pxmm;
+      xs.push(xs[j - 1] + gap);
+    }
     d2.rows.push({ y, x0, xs, n: row.beads.length, rowW });
     row.beads.forEach((b, j) => {
       const x = xs[j];
-      const r = BEAD[b.s].w * pxmm * 0.46;
+      const r = BEAD[b.s].w * pxmm * 0.48;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = state.palette[b.c].c; ctx.fill();
       ctx.lineWidth = 1;
@@ -353,11 +511,14 @@ function renderPalette() {
 function updateStat() {
   const m = state.model;
   if (!m) { document.getElementById('stat').textContent = ''; return; }
-  let small = 0;
-  m.rows.forEach(r => r.beads.forEach(b => { if (b.s) small++; }));
+  let small = 0, maxR = 0;
+  m.rows.forEach(r => r.beads.forEach(b => {
+    if (b.s) small++;
+    maxR = Math.max(maxR, Math.hypot(...b.p));
+  }));
   document.getElementById('stat').textContent =
     `рядов: ${m.rows.length}, бисерин: ${beadCount(m)} (15/0 — ${small}), ` +
-    `бусина ⌀ ${(2 * m.R).toFixed(1)} мм (средних рядов Delica: ${m.middle})`;
+    `итог ⌀ ${(2 * maxR).toFixed(1)} мм (бусина ⌀ ${(2 * m.R).toFixed(1)}, средних рядов Delica: ${m.middle})`;
 }
 
 function saveJSON() {
@@ -387,9 +548,12 @@ function loadJSON(file) {
         R: d.R,
         middle: d.middle || 11,
         rows: d.rows.map(r => ({
-          th: r.th, beads: r.beads.map(a => ({ c: a[0], s: a[1] })),
+          th: r.th || 0, beads: r.beads.map(a => ({ c: a[0], s: a[1], p: [0, 0, 0] })),
         })),
       };
+      // восстановить физическую укладку
+      relax(buildLayout(state.model.rows, d.R), state.model.rows, d.R, 500);
+      state.model.R = innerBall(state.model.rows);
       state.sel = null;
       renderPalette(); rebuild3D(); updateCam(); draw2D(); updateStat();
     } catch (e) { alert('Не удалось открыть: ' + e.message); }
