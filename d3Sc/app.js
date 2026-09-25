@@ -28,13 +28,11 @@ function patternRows(middle) {
   const crownHi = [
     [S, 16], [S, 16], [D, 8], [S, 16], [S, 8], [D, 8], [S, 4], [D, 4],
   ];
-  const N = 16;  // экваториальное число Delica (как в site.txt)
-  const dth = 0.6 * BEAD[D].h * 2 * Math.PI / (N * BEAD[D].w); // шаг по широте
+  const N = 16;
+  const dth = 0.6 * BEAD[D].h * 2 * Math.PI / (N * BEAD[D].w);
   const per = Math.floor(middle / 2), odd = middle % 2;
-  const half = [];                     // от экватора к венцу
+  const half = [];
   for (let k = 0; k < per + odd; k++) {
-    // минимум — кольцо длиной с S16-венец (16×1.7 мм ≈ 10 Delica):
-    // тоньше нельзя, стык с венцом не должен разрежаться
     half.push(Math.max(10, Math.round(N * Math.cos((k + (odd ? 0 : 0.5)) * dth))));
   }
   const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
@@ -199,7 +197,10 @@ function makeSolver(layout, rows, Rball) {
     thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
     thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
   }
-  for (const f of flat) f.r = BEAD[f.bead.s].h / 2;
+
+  const shrink = state.physics ? 1.0 : 0.4;
+  for (const f of flat) f.r = BEAD[f.bead.s].h / 2 * shrink;
+  
   updateCaps(flat, rows);
   const cell = 3.0; // ячейка сетки коллизий, мм
   const gkey = (x, y, z) => (Math.floor(x / cell) + 500) * 1e6 +
@@ -330,7 +331,6 @@ function relax(layout, rows, Rball, iters) {
   s.finish();
   return s.Rv();
 }
-
 // вписанная бусина: максимальный шар, помещающийся под оплёткой
 function innerBall(rows) {
   let R = 1e9;
@@ -371,6 +371,47 @@ function reRelax(iters) {
   computeTension();
 }
 
+// пересобрать 3D-укладку на новом радиусе, НЕ трогая схему (rows)
+function relayout(newR) {
+  const m = state.model;
+  if (!m) return;
+  m.R = newR;
+  relaxAnim = null;
+  state.layout = buildLayout(m.rows, m.R);
+  m.Rres = relax(state.layout, m.rows, m.R, 300);
+  computeTension();
+  rebuild3D();
+  updateCam();
+  draw2D();
+  updateStat();
+}
+
+// чисто визуальное раздутие: умножаем все координаты бисерин на k,
+// сохраняя базовую модель для сброса. Никакой физики, никакого
+// пересчёта паттерна.
+let basePositions = null;   // снимок исходных p[] до первого масштабирования
+
+function snapshotPositions() {
+  const m = state.model;
+  if (!m) return;
+  basePositions = m.rows.map(r => r.beads.map(b => [b.p[0], b.p[1], b.p[2]]));
+}
+
+function applyScale(k) {
+  const m = state.model;
+  if (!m || !basePositions) return;
+  m.rows.forEach((r, ri) => r.beads.forEach((b, j) => {
+    const p0 = basePositions[ri][j];
+    b.p[0] = p0[0] * k;
+    b.p[1] = p0[1] * k;
+    b.p[2] = p0[2] * k;
+  }));
+  refreshBeadMatrices();
+  updateCam();
+  draw2D();
+  updateStat();
+}
+
 
 
 const DEF_COLORS = [
@@ -392,6 +433,7 @@ const state = {
   tens: null,             // натяжение: [row][idx] -> зазор связи, мм
   showTension: false,     // подсветка натяжения
   showThread: false,      // показ связей нити (3D и 2D)
+  physics: false,   // false = без физики, только buildLayout
 };
 
 function beadCount(m) { return m.rows.reduce((a, r) => a + r.beads.length, 0); }
@@ -415,14 +457,23 @@ function generate(ballMm, middle) {
   updateCam();
   draw2D();
   updateStat();
+  snapshotPositions();
   animateRelax(600);
 }
 
 // анимация укладки при генерации: оплётка садится на сферу на глазах
 // (кадр = 12 итераций решателя); правки и загрузка JSON — пакетно, без анимации
 function animateRelax(totalIters) {
+  if (!state.physics) {
+    state.model.Rres = state.model.R;
+    computeTension();
+    refreshBeadMatrices();
+    updateCam(); draw2D(); updateStat();
+    return;
+  }
   relaxAnim = null;
   const solver = makeSolver(state.layout, state.model.rows, state.model.R);
+
   let done = 0;
   const frame = () => {
     if (relaxAnim !== frame) return; // отменена (новая генерация или правка)
@@ -872,10 +923,18 @@ function loadJSON(file) {
           th: r.th || 0, beads: r.beads.map(a => ({ c: a[0], s: a[1], p: [0, 0, 0] })),
         })),
       };
+
+      document.getElementById('ballMm').value = (d.R * 2).toFixed(1);
+      document.getElementById('midRows').value = d.middle || 11;
+
       // восстановить физическую укладку — мгновенно, пакетом
       relaxAnim = null;
       state.layout = buildLayout(state.model.rows, d.R);
       state.model.Rres = relax(state.layout, state.model.rows, d.R, 500);
+
+      snapshotPositions();
+      document.getElementById('scaleBall').value = '1';
+
       computeTension();
       state.sel = null;
       renderPalette(); rebuild3D(); updateCam(); draw2D(); updateStat();
@@ -928,7 +987,19 @@ function eqFromInputs() {
   ];
 }
 
-document.getElementById('btnGen').onclick = () => generate(...eqFromInputs());
+document.getElementById('btnGen').onclick = () => {
+  const [ballMm, midRows] = eqFromInputs();
+  const m = state.model;
+  // если модель есть и схема не менялась (middle тот же, rows есть) —
+  // не пересобираем паттерн, только пересаживаем на новый радиус
+  if (m && m.middle === midRows && m.rows && m.rows.length) {
+    relayout(Math.max(2.5, ballMm / 2));
+    return;
+  }
+  // иначе — полная перегенерация с нуля (смена middle, первый запуск)
+  generate(ballMm, midRows);
+};
+
 document.getElementById('btnSave').onclick = saveJSON;
 document.getElementById('btnLoad').onclick = () => document.getElementById('fileJson').click();
 document.getElementById('fileJson').onchange = e => {
@@ -972,6 +1043,14 @@ document.getElementById('threadShow').onchange = e => {
   if (state.model) { rebuild3D(); draw2D(); }
 };
 
+document.getElementById('physicsToggle').onchange = e => {
+  state.physics = e.target.checked;
+  if (state.model) {
+    reRelax(300);
+    rebuild3D(); updateCam(); draw2D(); updateStat();
+  }
+};
+
 document.getElementById('depthFade').oninput = e => {
   setDepthFade(parseFloat(e.target.value));
 };
@@ -979,11 +1058,8 @@ document.getElementById('depthFade').oninput = e => {
 // смена размера бусины — без перегенерации: схема и раскраска те же,
 // укладка пересчитывается под новую сферу обжатия
 document.getElementById('ballMm').onchange = e => {
-  const m = state.model;
-  if (!m) return;
-  m.R = Math.max(5, parseFloat(e.target.value) || 14.5) / 2;
-  reRelax(300);
-  rebuild3D(); updateCam(); draw2D(); updateStat();
+  const R = Math.max(2.5, (parseFloat(e.target.value) || 14.5) / 2);
+  relayout(R);
 };
 
 init3D();

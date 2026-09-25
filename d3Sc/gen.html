@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html><body>
+<script>
+(() => {
+  // 1. Палитра — 4 цвета по секторам
+  const palette = [
+    { c: '#c22a1e', b: 1 },   // красный
+    { c: '#20486e', b: 2 },   // синий
+    { c: '#e9dfc9', b: 3 },   // кремовый
+    { c: '#d8a013', b: 4 },   // золотой
+  ];
+
+  // 2. Формула раскраски: 4 вертикальных сектора
+  const colorOf = (j, n) => Math.floor(j / n * 4) % 4;
+
+  // 3. Формируем ряды. Число бисерин ×2, число средних рядов ×2
+  const rows = [];
+  const push = (n, s) => rows.push({
+    beads: Array.from({ length: n }, (_, j) => [colorOf(j, n), s])
+  });
+
+  // Венцы у полюса
+  push(8, 0);        // 4 Delica → 8 Delica
+  push(8, 1);        // 4×15/0  → 8×15/0
+  push(16, 0);       // 8 Delica → 16 Delica
+  push(16, 1);       // 8×15/0  → 16×15/0
+  push(32, 1);       // 16×15/0 → 32×15/0
+  push(16, 0);       // 8 Delica → 16 Delica
+  push(32, 1);       // 16×15/0 → 32×15/0
+  push(32, 1);       // 16×15/0 → 32×15/0
+
+  // Средние ряды: 11 → 22
+  for (let i = 0; i < 22; i++) push(32, 0);
+
+  // Зеркальные убавки
+  push(32, 1);
+  push(32, 1);
+  push(16, 0);
+  push(32, 1);
+  push(16, 1);
+  push(16, 0);
+  push(8, 1);
+  push(8, 0);
+
+  // 4. Собираем JSON
+  const data = {
+    type: 'd3sc-sphere-v2',
+    palette,
+    R: 15,            // диаметр 30 мм
+    middle: 22,       // ×2 от базовых 11
+    rows,
+  };
+
+  // 5. Скачиваем файл
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'd3sc_сфера_30.json';
+  a.click();
+
+  console.log(`Готово: ${rows.length} рядов, ${rows.reduce((s, r) => s + r.beads.length, 0)} бисерин`);
+})();
+</script>
+</body></html>
