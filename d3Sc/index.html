@@ -25,7 +25,7 @@
     <canvas id="c3d"></canvas>
   </section>
   <section id="panel2d">
-    <div class="hint">2D-развёртка: клик по бисерине — выбор. Ряды от полюса вниз.</div>
+    <div class="hint">2D-развёртка: клик по бисерине — покрасить · клик в промежутке — вставить · Shift+клик — удалить. Ряды от полюса вниз.</div>
     <canvas id="c2d"></canvas>
   </section>
 </div>
@@ -42,6 +42,7 @@
   <span class="sep"></span>
   <label title="Подсветка режима нити: красный — натянуто (касание), зелёный — расслаблено (зазор до 10% радиуса бусины)"><input type="checkbox" id="tension"> натяжение</label>
   <label title="Показать связи нити между бисеринами — в 3D отрезками, в 2D линиями под бисеринами (на печать не влияет)"><input type="checkbox" id="threadShow"> нить</label>
+  <label title="Затемнение заднего плана: 0 — всё одинаково яркое, 1 — задние бисерины сливаются с фоном">Глубина: <input id="depthFade" type="range" min="0" max="1" step="0.05" value="1" style="width:6em; vertical-align:middle"></label>
   <span id="tensLegend"><i></i>натянуто&nbsp;→&nbsp;расслаблено</span>
   <span id="stat" class="spacer"></span>
 </footer>

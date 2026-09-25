@@ -132,7 +132,8 @@ function buildLayout(rows, Rball) {
       const phi = (j + (ri % 2) * 0.5) / n * 2 * Math.PI;
       const p = [r_ring * Math.cos(phi), Y, r_ring * Math.sin(phi)];
       b.p = p;
-      flat.push({ row: ri, idx: j, bead: b, p });
+      flat.push({ row: ri, idx: j, bead: b, p, homeTheta: th, homePhi: phi });
+
     });
   });
 
@@ -251,6 +252,21 @@ function makeSolver(layout, rows, Rball) {
       f.p[0] *= k; f.p[1] *= k; f.p[2] *= k;
     }
   };
+
+    // мягкий якорь: тянет каждую бисерину к её домашней широте/долготе
+  // из buildLayout, чтобы ряды не растворялись от микро-сдвигов коллизий
+  const anchor = () => {
+    for (const f of flat) {
+      const r0 = Rv + BEAD[f.bead.s].h / 2;
+      const hx = r0 * Math.sin(f.homeTheta) * Math.cos(f.homePhi);
+      const hy = r0 * Math.cos(f.homeTheta);
+      const hz = r0 * Math.sin(f.homeTheta) * Math.sin(f.homePhi);
+      f.p[0] += (hx - f.p[0]) * 0.15;
+      f.p[1] += (hy - f.p[1]) * 0.15;
+      f.p[2] += (hz - f.p[2]) * 0.15;
+    }
+  };
+
   const step = () => {
     // связи нити: кольцо — двустороннее (сжатие жёстко, растяжение слабо),
     // пейот — только подтяжка с люфтом 0.1 мм (нить слегка растяжима:
@@ -261,7 +277,7 @@ function makeSolver(layout, rows, Rball) {
     // «расталкивание» до t·k ломало бы укладку. Распределение рядов
     // по меридиану при раздувании держат кольцевые связи (радиус
     // кольца жёстко привязан к широте на сфере) + правильный старт
-    for (const [a, b, t] of slinks) {
+    for (const [a, b, t] of links) {
       const dx = b.p[0] - a.p[0], dy = b.p[1] - a.p[1], dz = b.p[2] - a.p[2];
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
       if (a.row !== b.row && d < t + 0.1) continue;
@@ -275,6 +291,7 @@ function makeSolver(layout, rows, Rball) {
     resolveCollisions();
     resolveCollisions();
     toSphere();
+    anchor();
   };
   const finish = () => {
     for (let k = 0; k < 80; k++) {
@@ -308,7 +325,6 @@ function naturalInflate(layout, rows, Rball, iters) {
 // пакетная укладка (правки размера бисерин, загрузка JSON, смена бусины);
 // возвращает фактический радиус виртуальной сферы
 function relax(layout, rows, Rball, iters) {
-  naturalInflate(layout, rows, Rball, iters);
   const s = makeSolver(layout, rows, Rball);
   for (let i = 0; i < iters; i++) s.step();
   s.finish();
@@ -395,7 +411,6 @@ function generate(ballMm, middle) {
   state.tens = null;
   // при старте больше естественного размера — сразу естественная
   // укладка и равномерное раздувание (анимация лишь шлифует)
-  naturalInflate(state.layout, rows, R, 400);
   rebuild3D();
   updateCam();
   draw2D();
@@ -434,6 +449,7 @@ function init3D() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf7f5f0);
+  scene.fog = new THREE.Fog(0xf7f5f0, 1, 1000);
   scene.add(new THREE.AmbientLight(0xffffff, 0.65));
   const d1 = new THREE.DirectionalLight(0xffffff, 0.7); d1.position.set(3, 5, 4); scene.add(d1);
   const d2 = new THREE.DirectionalLight(0xffffff, 0.3); d2.position.set(-3, -2, -4); scene.add(d2);
@@ -493,6 +509,16 @@ function updateCam() {
   const cx = Math.cos(rot.x);
   camera.position.set(d * cx * Math.sin(rot.y), d * Math.sin(rot.x), d * cx * Math.cos(rot.y));
   camera.lookAt(0, 0, 0);
+  setDepthFade(1);      // ← добавил: 1 = задний план полностью в фоне
+}
+
+// 0 = без тумана, 1 = задний план полностью в фоне
+function setDepthFade(v) {
+  if (!scene.fog) return;
+  const R = state.model ? state.model.R : 10;
+  const mid = R * 3.2;                    // расстояние до центра сферы
+  scene.fog.near = mid - R * v * 1.2;
+  scene.fog.far  = mid + R * v * 1.2 + 0.001;
 }
 
 function beadPos(m, ri, j) {
@@ -638,6 +664,42 @@ function editBead(ri, j) {
   select({ row: ri, idx: j });
   updateStat();
 }
+
+// вставить новую бисерину в ряд ri, позиция j (перед существующей bead[j])
+function insertBeadAt(ri, j) {
+  const m = state.model;
+  const row = m.rows[ri];
+  const bead = { c: state.activeColor, s: state.small ? 1 : 0, p: [0, 0, 0] };
+  row.beads.splice(j, 0, bead);
+  relaxAnim = null;
+  state.layout = buildLayout(m.rows, m.R);
+  m.Rres = relax(state.layout, m.rows, m.R, 400);
+  computeTension();
+  state.sel = { row: ri, idx: j };
+  rebuild3D();
+  updateCam();
+  draw2D();
+  updateStat();
+}
+
+// удалить бисерину ri, j
+function deleteBeadAt(ri, j) {
+  const m = state.model;
+  const row = m.rows[ri];
+  if (row.beads.length <= 1) return;   // последнюю не удаляем
+  row.beads.splice(j, 1);
+  relaxAnim = null;
+  state.layout = buildLayout(m.rows, m.R);
+  m.Rres = relax(state.layout, m.rows, m.R, 400);
+  computeTension();
+  state.sel = null;
+  rebuild3D();
+  updateCam();
+  draw2D();
+  updateStat();
+}
+
+
 // ================= 2D развёртка =================
 const c2d = document.getElementById('c2d'), ctx = c2d.getContext('2d');
 let d2 = null; // геометрия развертки
@@ -716,11 +778,34 @@ c2d.addEventListener('pointerdown', e => {
   const ri = Math.floor((py - 15) / d2.rh);
   if (ri < 0 || ri >= d2.rows.length) return;
   const g = d2.rows[ri];
-  if (px < g.x0 - 10 || px > g.x0 + g.rowW + 10) return;
+  if (px < g.x0 - 20 || px > g.x0 + g.rowW + 20) return;
+
+  // ближайшая бисерина
   let best = -1, bd = 1e9;
   g.xs.forEach((x, j) => { const d = Math.abs(px - x); if (d < bd) { bd = d; best = j; } });
-  if (best >= 0) editBead(ri, best);
+  if (best < 0) return;
+
+  const beadR = BEAD[state.model.rows[ri].beads[best].s].w * d2.pxmm * 0.5;
+
+  // Shift + клик по бисерине → удалить
+  if (e.shiftKey && bd < beadR * 1.2) {
+    deleteBeadAt(ri, best);
+    return;
+  }
+
+  // Клик по бисерине → покрасить
+  if (bd < beadR * 0.8) {
+    editBead(ri, best);
+    return;
+  }
+
+  // Клик в промежуток → вставить
+  // если px правее центра best — вставка после best; иначе — перед best
+  const insertIdx = px > g.xs[best] ? best + 1 : best;
+  insertBeadAt(ri, insertIdx);
 });
+
+
 // ================= интерфейс =================
 function renderPalette() {
   const el = document.getElementById('palette');
@@ -886,6 +971,11 @@ document.getElementById('threadShow').onchange = e => {
   state.showThread = e.target.checked;
   if (state.model) { rebuild3D(); draw2D(); }
 };
+
+document.getElementById('depthFade').oninput = e => {
+  setDepthFade(parseFloat(e.target.value));
+};
+
 // смена размера бусины — без перегенерации: схема и раскраска те же,
 // укладка пересчитывается под новую сферу обжатия
 document.getElementById('ballMm').onchange = e => {
@@ -899,4 +989,5 @@ document.getElementById('ballMm').onchange = e => {
 init3D();
 renderPalette();
 generate(14.5, 11);
+setDepthFade(1);      // ← включить туман с дефолтной глубиной
 animate();
