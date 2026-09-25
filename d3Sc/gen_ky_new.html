@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>d3Sc текст</title>
+<style>body{font:14px system-ui;max-width:600px;margin:2em auto;padding:1em}
+label{display:block;margin:.5em 0}input[type=number],input[type=text]{width:8em}
+input[type=color]{width:4em}
+button{padding:.6em 1.2em;margin:1em 0;font-size:15px}
+pre{background:#eee;padding:1em;font:12px monospace;max-height:15em;overflow:auto}</style>
+</head><body>
+<h2>Текст на сфере</h2>
+<label>Слово <input id="word" type="text" value="КУ"></label>
+<label>Радиус, мм <input id="R" type="number" value="25" step="0.5" min="5"></label>
+<label>Средних рядов <input id="mid" type="number" value="22" min="3" max="60"></label>
+<label>Ширина надписи, мм <input id="W" type="number" value="26" step="1" min="5"></label>
+<label>Высота надписи, мм <input id="H" type="number" value="14" step="1" min="5"></label>
+<label>Угол видимости, ° <input id="ang" type="number" value="55" step="5" min="20" max="90"></label>
+<label>Фон <input id="bg" type="color" value="#e9dfc9"></label>
+<label>Текст <input id="fg" type="color" value="#c22a1e"></label>
+<button id="dl">Скачать JSON</button>
+<pre id="log"></pre>
+<script>
+'use strict';
+
+document.getElementById('dl').onclick = () => {
+  const word = document.getElementById('word').value || 'КУ';
+  const R = parseFloat(document.getElementById('R').value);
+  const middle = parseInt(document.getElementById('mid').value);
+  const W = parseFloat(document.getElementById('W').value);
+  const H = parseFloat(document.getElementById('H').value);
+  const angleLimit = parseFloat(document.getElementById('ang').value) * Math.PI / 180;
+  const cBg = document.getElementById('bg').value;
+  const cFg = document.getElementById('fg').value;
+
+  // === Рисуем текст на canvas настоящим шрифтом ===
+  const CW = 256, CH = 128;
+  const cv = document.createElement('canvas');
+  cv.width = CW; cv.height = CH;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, CW, CH);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold ' + Math.floor(CH * 0.8) + 'px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(word, CW / 2, CH / 2);
+  const px = ctx.getImageData(0, 0, CW, CH).data;
+  const isText = (x, y) => px[((y|0) * CW + (x|0)) * 4] > 128;  // R-канал
+
+  // === Схема сферы ===
+  const N = Math.max(8, Math.round(2 * Math.PI * R / 2.8));
+  const crownLo = [[0,4],[1,4],[0,8],[1,8],[0,16],[1,16]];
+  const crownHi = [[1,16],[0,16],[1,8],[0,8],[1,4],[0,4]];
+  const N0 = 16;
+  const per = Math.floor(middle / 2), odd = middle % 2;
+  const halfRows = per + odd;
+  const thMax = Math.acos(Math.min(0.99, N0 / N));
+  const half = [];
+  for (let k = 0; k < halfRows; k++) {
+    const t = halfRows > 1 ? k / (halfRows - 1) : 0;
+    half.push(Math.max(N0, Math.round(N * Math.cos(t * thMax))));
+  }
+  const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
+
+  const layout = [
+    ...crownLo.map(([s, n]) => ({ n, s })),
+    ...mid.map(n => ({ n, s: 0 })),
+    ...crownHi.map(([s, n]) => ({ n, s }))
+  ];
+
+  // === Считаем координаты каждой бисерины и раскрашиваем ===
+  const R_arc = R + 1.3;
+  const totalRows = layout.length;
+  const cosLimit = Math.cos(angleLimit);
+  const BG = 0, FG = 1;
+  let hits = 0;
+
+  const rows = layout.map((rowDef, ri) => {
+    const theta = Math.PI * (ri + 0.5) / totalRows;
+    const y = R_arc * Math.cos(theta);
+    const rXY = R_arc * Math.sin(theta);
+    const beads = [];
+    for (let j = 0; j < rowDef.n; j++) {
+      const phi = 2 * Math.PI * (j + (ri % 2) * 0.5) / rowDef.n;
+      const x = rXY * Math.cos(phi);
+      const z = rXY * Math.sin(phi);
+      let c = BG;
+      // Смотрим на "переднюю" полусферу, ось +Z — к камере
+      const cosA = z / Math.hypot(x, y, z);
+      if (cosA >= cosLimit) {
+        // Ортографическая проекция: используем (x, y) как координаты на плоскости
+        const u = (x + W / 2) / W;
+        const v = (H / 2 - y) / H;
+        if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+          if (isText(u * CW, v * CH)) { c = FG; hits++; }
+        }
+      }
+      beads.push([c, rowDef.s]);
+    }
+    return { beads };
+  });
+
+  const data = {
+    type: 'd3sc-sphere-v2',
+    palette: [{ c: cBg, b: 1 }, { c: cFg, b: 2 }],
+    R, middle, rows
+  };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'd3sc_text.json';
+  a.click();
+
+  // ASCII-превью
+  const TY = 20, TX = 50;
+  let preview = '\n';
+  for (let yy = 0; yy < TY; yy++) {
+    let line = '';
+    for (let xx = 0; xx < TX; xx++) {
+      line += isText(xx / TX * CW, yy / TY * CH) ? '#' : '.';
+    }
+    preview += line + '\n';
+  }
+
+  document.getElementById('log').textContent =
+    `Радиус ${R} мм, N=${N} на экваторе, бисерин всего ${rows.reduce((s,r)=>s+r.beads.length,0)}\n` +
+    `Надпись ${W}×${H} мм, попала на ${hits} бисерин\n` +
+    `Превью (как текст нарисован шрифтом):` + preview;
+};
+</script></body></html>

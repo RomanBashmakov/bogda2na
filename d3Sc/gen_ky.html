@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>d3Sc генератор</title>
+<style>
+body { font: 14px system-ui; max-width: 640px; margin: 2em auto; padding: 1em; }
+label { display: block; margin: .5em 0; }
+input[type=number] { width: 6em; }
+button { padding: .5em 1em; margin: 1em .5em 1em 0; }
+pre { background:#eee; padding:1em; overflow:auto; max-height: 20em; }
+</style>
+</head><body>
+<h2>d3Sc генератор схемы</h2>
+<label>Радиус бусины, мм: <input id="R" type="number" value="25" min="3" max="200" step="0.5"></label>
+<label>Средних рядов Delica: <input id="mid" type="number" value="22" min="1" max="60"></label>
+<label>Текст (2–3 буквы латиницей/кириллицей): <input id="txt" type="text" value="КУ" maxlength="4"></label>
+<label>Цвет фона: <input id="bg" type="color" value="#e9dfc9"></label>
+<label>Цвет текста: <input id="fg" type="color" value="#c22a1e"></label>
+
+<button id="gen">Скачать JSON</button>
+<button id="preview">Показать инфо</button>
+
+<pre id="log"></pre>
+
+<script>
+'use strict';
+const BEAD_W = 2.8, BEAD_H = 2.6;
+
+// 5×7 шрифт (латиница + пара кириллических букв, которых у тебя в примере)
+const FONT = {
+  'K': ["#...#","#..#.","#.#..","##...","#.#..","#..#.","#...#"],
+  'У': ["#...#","#...#","#...#","#...#","#...#",".####","....."],
+  'A': [".###.","#...#","#...#","#####","#...#","#...#","#...#"],
+  'B': ["####.","#...#","####.","#...#","#...#","#...#","####."],
+  'C': [".###.","#...#","#....","#....","#....","#...#",".###."],
+  'E': ["#####","#....","####.","#....","#....","#....","#####"],
+  'O': [".###.","#...#","#...#","#...#","#...#","#...#",".###."],
+  'V': ["#...#","#...#","#...#","#...#","#...#",".#.#.",".#.#."],
+  'L': ["#....","#....","#....","#....","#....","#....","#####"],
+  'M': ["#...#","##.##","#.#.#","#...#","#...#","#...#","#...#"],
+  'Н': ["#...#","#...#","#...#","#####","#...#","#...#","#...#"],
+  'П': ["#####","#...#","#...#","#...#","#...#","#...#","#...#"],
+  'Р': ["####.","#...#","#...#","####.","#....","#....","#...."],
+  'С': [".###.","#...#","#....","#....","#....","#...#",".###."],
+  'И': ["#...#","#...#","#..#.","#.#.#",".#..#","#...#","#...#"],
+  ' ': [".....",".....",".....",".....",".....",".....","....."]
+};
+
+function buildBitmap(text) {
+  // высота 7, ширина = сумма ширин букв + пробелы (1 колонка)
+  const rows = ["","","","","","",""];
+  text.toUpperCase().split('').forEach((ch, idx) => {
+    const glyph = FONT[ch] || FONT[' '];
+    for (let i = 0; i < 7; i++) rows[i] += glyph[i] + (idx < text.length - 1 ? "." : "");
+  });
+  return rows;
+}
+
+function generate() {
+  const R = parseFloat(document.getElementById('R').value);
+  const middle = parseInt(document.getElementById('mid').value);
+  const text = document.getElementById('txt').value || 'КУ';
+  const cBg = document.getElementById('bg').value;
+  const cFg = document.getElementById('fg').value;
+
+  const N = Math.max(8, Math.round(2 * Math.PI * R / BEAD_W));
+  const crownLo = [[0,4],[1,4],[0,8],[1,8],[0,16],[1,16]];
+  const crownHi = [[1,16],[0,16],[1,8],[0,8],[1,4],[0,4]];
+
+  // середину: cos-профиль от 16 (у венца) до N (экватор)
+  const N0 = 16;
+  const per = Math.floor(middle / 2), odd = middle % 2;
+  const halfRows = per + odd;
+  const thMax = Math.acos(Math.min(0.99, N0 / N));
+  const half = [];
+  for (let k = 0; k < halfRows; k++) {
+    const t = halfRows > 1 ? k / (halfRows - 1) : 0;
+    half.push(Math.max(N0, Math.round(N * Math.cos(t * thMax))));
+  }
+  const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
+
+  const bitmap = buildBitmap(text);
+  const TY = 7, TX = bitmap[0].length;
+  const midStart = crownLo.length;
+  const midEnd = midStart + mid.length - 1;
+
+  // текст займёт средние 7 рядов середины (или меньше, если mid короче)
+  const takeRows = Math.min(TY, mid.length);
+  const textRowStart = midStart + Math.floor((mid.length - takeRows) / 2);
+  const textRowEnd = textRowStart + takeRows - 1;
+
+  const palette = [{ c: cBg, b: 1 }, { c: cFg, b: 2 }];
+  const BG = 0, FG = 1;
+
+  const rows = [];
+  const push = (n, s, fn) => rows.push({
+    beads: Array.from({ length: n }, (_, j) => {
+      const c = fn ? fn(j, n) : BG;
+      return [c, s];
+    })
+  });
+
+  crownLo.forEach(([s, n]) => push(n, s, () => BG));
+  mid.forEach((n, mi) => {
+    const ri = midStart + mi;
+    if (ri < textRowStart || ri > textRowEnd) { push(n, 0, () => BG); return; }
+    const ty = Math.floor((ri - textRowStart) / takeRows * TY);
+    push(n, 0, (j) => {
+      const tx = Math.min(TX - 1, Math.floor(j / n * TX));
+      return bitmap[ty][tx] === '#' ? FG : BG;
+    });
+  });
+  crownHi.forEach(([s, n]) => push(n, s, () => BG));
+
+  const data = { type: 'd3sc-sphere-v2', palette, R, middle, rows };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `d3sc_${text}.json`;
+  a.click();
+
+  const total = rows.reduce((s, r) => s + r.beads.length, 0);
+  document.getElementById('log').textContent =
+    `N на экваторе: ${N}\n` +
+    `Рядов: ${rows.length}, бисерин: ${total}\n` +
+    `Bitmap ${TX}×${TY}:\n${bitmap.join('\n')}`;
+}
+
+document.getElementById('gen').onclick = generate;
+document.getElementById('preview').onclick = () => {
+  const R = parseFloat(document.getElementById('R').value);
+  const N = Math.max(8, Math.round(2 * Math.PI * R / BEAD_W));
+  document.getElementById('log').textContent = `N на экваторе будет: ${N}`;
+};
+</script>
+</body></html>

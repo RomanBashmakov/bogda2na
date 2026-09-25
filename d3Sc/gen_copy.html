@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html><body>
+<script>
+(() => {
+  // === параметры ===
+  const R = 25;            // радиус в мм (диаметр 50)
+  const middle = 22;       // средних рядов Delica
+  const palette = [
+    { c: '#c22a1e', b: 1 },
+    { c: '#20486e', b: 2 },
+    { c: '#e9dfc9', b: 3 },
+    { c: '#d8a013', b: 4 },
+  ];
+  const colorOf = (j, n) => Math.floor(j / n * 4) % 4;
+
+  // N — сколько Delica плотно садится на экватор
+  const N = Math.max(8, Math.round(2 * Math.PI * R / 2.8));
+
+  // === венец фиксирован! не масштабируется ===
+  const crownLo = [[0, 4], [1, 4], [0, 8], [1, 8], [0, 16], [1, 16]];
+  const crownHi = [[1, 16], [0, 16], [1, 8], [0, 8], [1, 4], [0, 4]];
+
+  // === середина: cos-профиль от 16 у венца до N на экваторе ===
+  const N0 = 16;
+  const per = Math.floor(middle / 2), odd = middle % 2;
+  const halfRows = per + odd;
+  const thMax = Math.acos(N0 / N);
+  const half = [];
+  for (let k = 0; k < halfRows; k++) {
+    const t = halfRows > 1 ? k / (halfRows - 1) : 0;
+    half.push(Math.max(N0, Math.round(N * Math.cos(t * thMax))));
+  }
+  const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
+
+  // === сборка ===
+  const rows = [];
+  const push = (n, s) => rows.push({
+    beads: Array.from({ length: n }, (_, j) => [colorOf(j, n), s]),
+  });
+  crownLo.forEach(([s, n]) => push(n, s));
+  mid.forEach(n => push(n, 0));
+  crownHi.forEach(([s, n]) => push(n, s));
+
+  const data = { type: 'd3sc-sphere-v2', palette, R, middle, rows };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'd3sc_geo.json';
+  a.click();
+
+  console.log(`N = ${N} на экваторе`);
+  console.log(`Середина: [${mid.join(', ')}]`);
+  console.log(`Рядов: ${rows.length}, бисерин: ${rows.reduce((s,r)=>s+r.beads.length,0)}`);
+})();
+</script>
+</body></html>

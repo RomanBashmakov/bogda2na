@@ -28,13 +28,21 @@ function patternRows(middle) {
   const crownHi = [
     [S, 16], [S, 16], [D, 8], [S, 16], [S, 8], [D, 8], [S, 4], [D, 4],
   ];
-  const N = 16;
-  const dth = 0.6 * BEAD[D].h * 2 * Math.PI / (N * BEAD[D].w);
+  
+  const N = 16;                      // бисерин на экваторе
+  const M = 10;                      // бисерин на стыке с венцом (граница середины)
   const per = Math.floor(middle / 2), odd = middle % 2;
+  const halfRows = per + odd;        // рядов в одной половине середины
+  // профиль сферы: cos(θ) от 0 (экватор) до acos(M/N) (граница с венцом).
+  // шаг по θ задан так, чтобы на lastRow получить ровно M
+  const thMax = Math.acos(M / N);
   const half = [];
-  for (let k = 0; k < per + odd; k++) {
-    half.push(Math.max(10, Math.round(N * Math.cos((k + (odd ? 0 : 0.5)) * dth))));
+  for (let k = 0; k < halfRows; k++) {
+    const t = halfRows > 1 ? k / (halfRows - 1) : 0;
+    const n = Math.round(N * Math.cos(t * thMax));
+    half.push(Math.max(M, n));
   }
+
   const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
   const seq = [...crownLo, ...mid.map(n => [D, n]), ...crownHi];
   return seq.map(([sz, n]) => ({ sizes: Array(n).fill(sz) }));
