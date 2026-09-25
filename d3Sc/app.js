@@ -71,57 +71,51 @@ function naturalR(rows) {
 }
 
 function buildLayout(rows, Rball) {
-  const flat = [];   // {row, idx, bead, p:[x,y,z]}
-  // экваторный ряд — середина блока самых длинных рядов
-  let maxC = -1;
-  rows.forEach(r => { maxC = Math.max(maxC, rowC(r)); });
-  const maxIdx = [];
-  rows.forEach((r, i) => { if (rowC(r) === maxC) maxIdx.push(i); });
-  const eq = maxIdx[Math.floor(maxIdx.length / 2)];
-  // естественный радиус плетения (та же оценка, что в решателе). Углы
-  // (фиты колец и стек шагов) считаем от НЕГО: при бусине больше
-  // естественной стартовая укладка — равномерно раздутая на целевую
-  // сферу (те же широты), а не сбившаяся к полюсам куча. Размещение —
-  // всегда на целевой сфере Rball
-  const RvNat = naturalR(rows);
-  const Ra = Rball > RvNat ? RvNat : Rball;
-  // θ ряда: широта, на которой длина нити кольца ложится в окружность сферы
-  // (ближе к полюсу ряд не поднимется — окружность мала); между фитами ряды
-  // расходятся стеком с шагом утопленного мозаичного ряда. Если ряды не
-  // помещаются между полюсами — шаг равномерно сжимается, а не сваливается
-  // в кучу на полюсе. Экватор центрируется на π/2.
-  const steps = [0];
-  rows.forEach((r, i) => {
-    if (!i) return;
-    const rc = Ra + BEAD[r.beads[0].s].h / 2;
-    steps.push(0.6 * (BEAD[rows[i - 1].beads[0].s].h + BEAD[r.beads[0].s].h) / 2 / rc);
-  });
-  const stack = k => {
-    let a = 0;
-    return rows.map((r, i) => {
-      const rc = Ra + BEAD[r.beads[0].s].h / 2;
-      const fit = Math.asin(Math.min(0.999, rowC(r) / (2 * Math.PI) / rc));
-      a = i ? a + steps[i] * k : fit;
-      if (i < eq) a = Math.min(a, Math.PI / 2); // нижняя половина — не выше экватора
-      return Math.max(i <= eq ? fit : Math.PI - fit, a);
-    });
-  };
-  let thArr = stack(1);
-  const last = thArr[thArr.length - 1];
-  if (last > Math.PI - 0.1) thArr = stack(Math.max(0.2, (Math.PI - 0.15 - thArr[0]) / (last - thArr[0])));
-  const shift = Math.PI / 2 - thArr[eq];
+  const flat = [];
+  const totalRows = rows.length;
+  
+  // 1. Определяем общую высоту сферы.
+  // Rball — это радиус внутренней бусины. Бисерины лежат на сфере радиусом Rball + половина высоты бисерины.
+  // Для простоты возьмем средний радиус, или можно считать для каждого ряда отдельно.
+  const R_center = Rball + BEAD[0].h / 2; 
+  
+  // 2. Равномерный шаг по высоте (Y).
+  // Если рядов N, то промежутков между ними N-1. 
+  // Распределяем от -R_center до +R_center.
+  const dY = totalRows > 1 ? (2 * R_center) / (totalRows - 1) : 0;
+  
   rows.forEach((row, ri) => {
+    // 3. Жестко задаем Y для текущего ряда
+    let Y = -R_center + ri * dY;
+    // Защита от микроскопических ошибок округления
+    Y = Math.max(-R_center, Math.min(R_center, Y)); 
+    
+    // 4. Вычисляем радиус окружности на этой высоте (Теорема Пифагора)
+    const r_ring = Math.sqrt(Math.max(0, R_center * R_center - Y * Y));
+    
+    // Сохраняем theta (угол) для совместимости с другими функциями (например, updateCam)
+    row.th = Math.acos(Y / R_center); 
+    
     const n = row.beads.length;
-    row.th = Math.min(Math.PI - 0.05, Math.max(0.05, thArr[ri] + shift));
     row.beads.forEach((b, j) => {
-      const rc = Rball + BEAD[b.s].h / 2;
+      // 5. Распределяем n бисерин равномерно по окружности радиуса r_ring
+      // Добавляем сдвиг на полшага для четных/нечетных рядов (мозаика)
       const phi = (j + (ri % 2) * 0.5) / n * 2 * Math.PI;
-      const p = [rc * Math.sin(row.th) * Math.cos(phi), rc * Math.cos(row.th),
-                 rc * Math.sin(row.th) * Math.sin(phi)];
-      b.p = p;
+      
+      const p = [
+        r_ring * Math.cos(phi),
+        Y,
+        r_ring * Math.sin(phi)
+      ];
+      
+      b.p = p; // Присваиваем координаты напрямую, без физики!
       flat.push({ row: ri, idx: j, bead: b, p });
     });
   });
+
+
+
+
   // индекс (row,idx) -> flat
   const at = (ri, j) => flat[rows.slice(0, ri).reduce((acc, r) => acc + r.beads.length, 0) + j];
   // связи нити: ребёнок (ряд i+1) -> 2 ближайших родителя (ряд i) по углу
