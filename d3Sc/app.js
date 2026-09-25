@@ -72,47 +72,69 @@ function naturalR(rows) {
 
 function buildLayout(rows, Rball) {
   const flat = [];
-  const totalRows = rows.length;
-  
-  // 1. Определяем общую высоту сферы.
-  // Rball — это радиус внутренней бусины. Бисерины лежат на сфере радиусом Rball + половина высоты бисерины.
-  // Для простоты возьмем средний радиус, или можно считать для каждого ряда отдельно.
-  const R_center = Rball + BEAD[0].h / 2; 
-  
-  // 2. Равномерный шаг по высоте (Y).
-  // Если рядов N, то промежутков между ними N-1. 
-  // Распределяем от -R_center до +R_center.
-  const dY = totalRows > 1 ? (2 * R_center) / (totalRows - 1) : 0;
-  
+  const N = rows.length;
+  const R_arc = Rball + BEAD[rows[Math.floor(N / 2)].beads[0].s].h / 2;
+
+  // 1. Естественный шаг по ДУГЕ МЕРИДИАНА для каждой пары соседей
+  const steps = [0];
+  for (let i = 1; i < N; i++) {
+    const h1 = BEAD[rows[i - 1].beads[0].s].h;
+    const h2 = BEAD[rows[i].beads[0].s].h;
+    steps.push(0.6 * (h1 + h2) / 2);   // утопание на 40% средней высоты
+  }
+  const S_total = steps.reduce((a, b) => a + b, 0);
+
+  // 2. Сколько дуги есть в наличии
+  const L = Math.PI * R_arc;
+  const k = L / S_total;              // растяжение/сжатие паттерна под сферу
+
+  // 3. Накопленная дуга от верхнего полюса
+  const theta = [0];
+  let s = 0;
+  for (let i = 1; i < N; i++) {
+    s += steps[i] * k;
+    theta.push(s / R_arc);
+  }
+  // 4. Центруем середину массива на экваторе
+  const eq = Math.floor(N / 2);
+  const shift = Math.PI / 2 - theta[eq];
+  for (let i = 0; i < N; i++) theta[i] += shift;
+  for (let i = 0; i < N; i++) theta[i] = Math.max(0.02, Math.min(Math.PI - 0.02, theta[i]));
+
+  // ограничение: ряд не может сидеть на кольце, которое меньше его ширины
+  for (let i = 0; i < N; i++) {
+    const rowWidth = rowC(rows[i]);
+    const r_min = rowWidth / (2 * Math.PI);
+    const th_min = Math.asin(Math.min(1, r_min / R_arc));
+    if (i < eq) {
+      theta[i] = Math.max(theta[i], th_min);
+    } else {
+      theta[i] = Math.min(theta[i], Math.PI - th_min);
+    }
+  }
+
+  // монотонность: θ не должна убывать от полюса к экватору
+  for (let i = 1; i <= eq; i++) {
+    if (theta[i] < theta[i - 1] + 0.001) theta[i] = theta[i - 1] + 0.001;
+  }
+  for (let i = N - 2; i >= eq; i--) {
+    if (theta[i] > theta[i + 1] - 0.001) theta[i] = theta[i + 1] - 0.001;
+  }
+
+  // 5. Расставляем бисерины
   rows.forEach((row, ri) => {
-    // 3. Жестко задаем Y для текущего ряда
-    let Y = -R_center + ri * dY;
-    // Защита от микроскопических ошибок округления
-    Y = Math.max(-R_center, Math.min(R_center, Y)); 
-    
-    // 4. Вычисляем радиус окружности на этой высоте (Теорема Пифагора)
-    const r_ring = Math.sqrt(Math.max(0, R_center * R_center - Y * Y));
-    
-    // Сохраняем theta (угол) для совместимости с другими функциями (например, updateCam)
-    row.th = Math.acos(Y / R_center); 
-    
+    const th = theta[ri];
+    row.th = th;
+    const Y = R_arc * Math.cos(th);
+    const r_ring = R_arc * Math.sin(th);
     const n = row.beads.length;
     row.beads.forEach((b, j) => {
-      // 5. Распределяем n бисерин равномерно по окружности радиуса r_ring
-      // Добавляем сдвиг на полшага для четных/нечетных рядов (мозаика)
       const phi = (j + (ri % 2) * 0.5) / n * 2 * Math.PI;
-      
-      const p = [
-        r_ring * Math.cos(phi),
-        Y,
-        r_ring * Math.sin(phi)
-      ];
-      
-      b.p = p; // Присваиваем координаты напрямую, без физики!
+      const p = [r_ring * Math.cos(phi), Y, r_ring * Math.sin(phi)];
+      b.p = p;
       flat.push({ row: ri, idx: j, bead: b, p });
     });
   });
-
 
 
 
@@ -129,9 +151,9 @@ function buildLayout(rows, Rball) {
       const a = ang(at(ri, j));
       const sorted = parAng.map((pa, pj) => [Math.abs((((a - pa) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI), pj])
         .sort((x, y) => x[0] - y[0]);
-      const t = (BEAD[rows[ri].beads[j].s].w + BEAD[rows[ri - 1].beads[sorted[0][1]].s].w) / 2;
+      const t = 0.6 * (BEAD[rows[ri].beads[j].s].h + BEAD[rows[ri-1].beads[sorted[0][1]].s].h) / 2;
       links.push([at(ri, j), at(ri - 1, sorted[0][1]), t]);
-      const t2 = (BEAD[rows[ri].beads[j].s].w + BEAD[rows[ri - 1].beads[sorted[1][1]].s].w) / 2;
+      const t2 = 0.6 * (BEAD[rows[ri].beads[j].s].h + BEAD[rows[ri - 1].beads[sorted[1][1]].s].h) / 2;
       links.push([at(ri, j), at(ri - 1, sorted[1][1]), t2]);
     }
   }
@@ -151,11 +173,8 @@ function buildLayout(rows, Rball) {
 // вызывается каждую итерацию: капсулы следуют за фактической укладкой
 function updateCaps(flat, rows) {
   for (const f of flat) {
-    const row = rows[f.row], n = row.beads.length;
-    const prev = row.beads[(f.idx - 1 + n) % n].p, next = row.beads[(f.idx + 1) % n].p;
-    let ux = next[0] - prev[0], uy = next[1] - prev[1], uz = next[2] - prev[2];
-    const ul = Math.hypot(ux, uy, uz) || 1;
-    ux /= ul; uy /= ul; uz /= ul;
+    const phi = Math.atan2(f.p[2], f.p[0]);
+    const ux = -Math.sin(phi), uy = 0, uz = Math.cos(phi);
     f.u = [ux, uy, uz];
     const half = Math.max(0, BEAD[f.bead.s].w / 2 - f.r);
     f.caps = [
@@ -168,11 +187,17 @@ function updateCaps(flat, rows) {
 // пошаговый решатель: step() — одна итерация, finish() — финальная чистка
 function makeSolver(layout, rows, Rball) {
   const { flat, links } = layout;
-  const W_RING = 0.20;    // подтяжка растянутых связей внутри кольца
-  const W_PEYOTE = 0.10;  // подтяжка растянутых межрядных (пейот) связей
+  const W_RING = 0.0;    // подтяжка растянутых связей внутри кольца
+  const W_PEYOTE = 0.0;  // подтяжка растянутых межрядных (пейот) связей
   const W_PUSH = 0.20;    // развод сжатых внутрикольцевых связей (слабее коллизий)
-  const COL_PUSH = 0.50;  // выталкивание в коллизиях — сильнейшая коррекция
-  const SPH = 0.45;       // мягкое округление виртуальной сферой
+  const COL_PUSH = 0.95;  // выталкивание в коллизиях — сильнейшая коррекция
+  const SPH = 1;       // мягкое округление виртуальной сферой
+  const NEST = 0;      // мм, допуск утапливания для пар одной нити
+  const thread = new Set();
+  for (const [a, b] of links) {
+    thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
+    thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
+  }
   for (const f of flat) f.r = BEAD[f.bead.s].h / 2;
   updateCaps(flat, rows);
   const cell = 3.0; // ячейка сетки коллизий, мм
@@ -180,57 +205,42 @@ function makeSolver(layout, rows, Rball) {
     (Math.floor(y / cell) + 500) * 1e3 + (Math.floor(z / cell) + 500);
   // непроникновение капсул (по пространственной сетке)
   const resolveCollisions = () => {
-    const grid = new Map();
-    for (const f of flat) for (const c of f.caps) {
-      const k = gkey(c[0], c[1], c[2]);
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k).push([f, c]);
-    }
-    for (const f of flat) for (const cf of f.caps) {
-      const cx = Math.floor(cf[0] / cell), cy = Math.floor(cf[1] / cell), cz = Math.floor(cf[2] / cell);
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-        const bucket = grid.get(gkey((cx + dx + 0.5) * cell, (cy + dy + 0.5) * cell, (cz + dz + 0.5) * cell));
-        if (!bucket) continue;
-        for (const [g, cg] of bucket) {
-          if (g === f) continue;
-          // коллизии действуют на ВСЕ пары, включая пары одной нити
-          // (кольцо/пейот): без жёсткого пола расстояния сжатые кольца
-          // сминаются внахлёст («утопленные» бисерины). Допуск
-          // утапливания — как в реальном плетении: торцы соседей по
-          // кольцу 0.25 мм, межрядные пары 0.9 мм (мозаичные ряды
-          // утапливаются на ~0.6 высоты бисерины)
-          const ex = cg[0] - cf[0], ey = cg[1] - cf[1], ez = cg[2] - cf[2];
-          const d = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1e-6;
-          const t = f.r + g.r - (f.row === g.row ? 0.25 : 0.9);
-          if (d < t) {
-            const push = (t - d) / d * COL_PUSH;
-            const mx = ex * push, my = ey * push, mz = ez * push;
-            f.p[0] -= mx; f.p[1] -= my; f.p[2] -= mz;
-            g.p[0] += mx; g.p[1] += my; g.p[2] += mz;
-            cf[0] -= mx; cf[1] -= my; cf[2] -= mz;
-            cg[0] += mx; cg[1] += my; cg[2] += mz;
-          }
+  const grid = new Map();
+  for (const f of flat) {
+    const k = gkey(f.p[0], f.p[1], f.p[2]);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(f);
+  }
+  for (const f of flat) {
+    const cx = Math.floor(f.p[0] / cell), cy = Math.floor(f.p[1] / cell), cz = Math.floor(f.p[2] / cell);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      const bucket = grid.get(gkey((cx + dx + 0.5) * cell, (cy + dy + 0.5) * cell, (cz + dz + 0.5) * cell));
+      if (!bucket) continue;
+      for (const g of bucket) {
+        if (g === f) continue;
+        // обрабатываем пару только один раз: f «младше» g по индексу
+        if (f.row > g.row || (f.row === g.row && f.idx > g.idx)) continue;
+        const linked = thread.has(f.row + ':' + f.idx + '-' + g.row + ':' + g.idx);
+        const ex = g.p[0] - f.p[0], ey = g.p[1] - f.p[1], ez = g.p[2] - f.p[2];
+        const d = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1e-6;
+        const t = f.r + g.r - (linked ? NEST : 0);
+        if (d < t) {
+          const push = (t - d) / d * COL_PUSH * 0.5;
+          const mx = ex * push, my = ey * push, mz = ez * push;
+          f.p[0] -= mx; f.p[1] -= my; f.p[2] -= mz;
+          g.p[0] += mx; g.p[1] += my; g.p[2] += mz;
         }
       }
     }
-  };
+  }
+};
   // виртуальная сфера обжатия: радиус = max(введённый старт, оценка
-  // минимума по площади плетения; footprint бисерины на сфере ≈ w × 0.6h
-  // из-за утопленного шага рядов). Схема от бусины не зависит — размер
-  // можно менять после генерации (поле «Бусина, мм», без перегенерации)
-  const RvNat = naturalR(rows);
-  const Rv = Math.max(Rball, RvNat);
-  // равномерное «раздувание» при бусине больше естественного размера
-  // плетения: длины связей РЕШАТЕЛЯ растут пропорционально сфере
-  // (k = Rv/RvNat). Без этого замкнутые кольца держат свой радиус,
-  // сбиваются к полюсам в кучу, а экватор рвётся щелями. С масштабом
-  // укладка раздувается равномерно: бисерины разъезжаются по всему
-  // свободному месту, в том числе у полюсов. Истинные длины связей
-  // (layout.links) не трогаем — карта натяжения и зазор в статусе
-  // честно показывают, насколько плетение свободно на этой бусине
-  const kin = RvNat > 0 ? Rv / RvNat : 1;
-  const inflate = kin > 1.0001;
-  const slinks = inflate ? links.map(l => [l[0], l[1], l[2] * kin]) : links;
+  // минимума по площади бисера — площадь колец × 0.8 с учётом частичного
+  // утапливания рядов). Размер задаёт само плетение, сфера лишь мягко
+  // округляет форму; жёсткого натягивания на бусину нет.
+  let area = 0;
+  for (const f of flat) area += BEAD[f.bead.s].w * BEAD[f.bead.s].h;
+  const Rv = Rball;
   // сфера-оболочка: центры на Rv + h/2 (мелкий бисер сидит глубже);
   // и не провалиться внутрь, и не улететь наружу
   const toSphere = () => {
@@ -267,12 +277,8 @@ function makeSolver(layout, rows, Rball) {
     toSphere();
   };
   const finish = () => {
-    // порядок: сначала сфера, коллизии — последними: финальное слово
-    // за непроникновением (приоритетнее точного радиуса)
     for (let k = 0; k < 80; k++) {
-      toSphere();
       updateCaps(flat, rows);
-      resolveCollisions();
       resolveCollisions();
     }
   };
@@ -492,12 +498,8 @@ function updateCam() {
 function beadPos(m, ri, j) {
   const row = m.rows[ri];
   const p = row.beads[j].p;
-  // ось цилиндра — вдоль нити кольца (по соседям)
-  const n = row.beads.length;
-  const prev = row.beads[(j - 1 + n) % n].p, next = row.beads[(j + 1) % n].p;
-  const dir = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];
-  const dl = Math.hypot(...dir) || 1;
-  const east = new THREE.Vector3(dir[0] / dl, dir[1] / dl, dir[2] / dl);
+  const phi = Math.atan2(p[2], p[0]);
+  const east = new THREE.Vector3(-Math.sin(phi), 0, Math.cos(phi));
   return { east, v: new THREE.Vector3(p[0], p[1], p[2]) };
 }
 
