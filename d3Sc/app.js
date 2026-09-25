@@ -5,22 +5,40 @@
 'use strict';
 
 // ---- Калибры бисера, мм (ширина вдоль нити × высота поперёк) ----
-// подобраны так, чтобы паттерн из site.txt (16 Delica на экваторе)
-// плотно садился на бусину ~14–15 мм
+// Delica — основной размер «пояска», 15/0 — венцы у полюсов; число бисерин
+// в рядах выводится из целевой сферы (см. patternRows)
 const BEAD = {
   0: { w: 2.8, h: 2.6 },   // крупный цилиндр (Delica)
   1: { w: 1.7, h: 1.9 },   // мелкий круглый (15/0)
 };
 
-// Паттерн оплетения бусины (по site.txt): пары/одиночки Delica и 15/0,
-// зеркальные убавки сверху. middle — число средних рядов Delica.
+// Паттерн: полюсные венцы — фиксированные, по site.txt (у полюса кольцо
+// из 4 Delica, выше 4×15/0, 8 Delica, 8×15/0, 16×15/0, 8 Delica,
+// 16×15/0 ×2 — и зеркально сверху). Средняя часть — сферический профиль:
+// число Delica убывает от экватора к полюсам пропорционально cos широты.
+// Широты считаются в единицах самой схемы (шаг утопленного ряда к длине
+// экваториального кольца), поэтому схема НЕ зависит от размера бусины —
+// поле «Бусина, мм» можно менять после генерации без пересборки.
+// middle — число средних рядов Delica.
 function patternRows(middle) {
   const D = 0, S = 1;
-  const seq = [
+  const crownLo = [
     [D, 4], [S, 4], [D, 8], [S, 8], [S, 16], [D, 8], [S, 16], [S, 16],
   ];
-  for (let i = 0; i < middle; i++) seq.push([D, 16]);
-  seq.push([S, 16], [S, 16], [D, 8], [S, 16], [S, 8], [D, 8], [S, 4], [D, 4]);
+  const crownHi = [
+    [S, 16], [S, 16], [D, 8], [S, 16], [S, 8], [D, 8], [S, 4], [D, 4],
+  ];
+  const N = 16;  // экваториальное число Delica (как в site.txt)
+  const dth = 0.6 * BEAD[D].h * 2 * Math.PI / (N * BEAD[D].w); // шаг по широте
+  const per = Math.floor(middle / 2), odd = middle % 2;
+  const half = [];                     // от экватора к венцу
+  for (let k = 0; k < per + odd; k++) {
+    // минимум — кольцо длиной с S16-венец (16×1.7 мм ≈ 10 Delica):
+    // тоньше нельзя, стык с венцом не должен разрежаться
+    half.push(Math.max(10, Math.round(N * Math.cos((k + (odd ? 0 : 0.5)) * dth))));
+  }
+  const mid = (odd ? half.slice(1).reverse() : [...half].reverse()).concat(half);
+  const seq = [...crownLo, ...mid.map(n => [D, n]), ...crownHi];
   return seq.map(([sz, n]) => ({ sizes: Array(n).fill(sz) }));
 }
 
@@ -42,6 +60,16 @@ const colR = b => (BEAD[b.s].w + BEAD[b.s].h) / 4;
 // 1) стартовые позиции: ряды-кольца на сфере R + h/2, мозаичный сдвиг на полшага
 // 2) итерации: связи нити → ориентация капсул по соседям → коллизии → сфера
 // 3) финальная чистка: коллизии + сфера, без пружин
+// естественный радиус плетения: сфера, на которую площадь плетения
+// ложится с утопленным шагом рядов (footprint бисерины ≈ w × 0.6h).
+// Меньше неё бусину не сделать — не влезет; от неё считается
+// коэффициент раздувания k = R/RvNat
+function naturalR(rows) {
+  let area = 0;
+  rows.forEach(r => r.beads.forEach(b => { area += BEAD[b.s].w * BEAD[b.s].h; }));
+  return Math.sqrt(area * 0.6 / (4 * Math.PI)) - BEAD[0].h / 2;
+}
+
 function buildLayout(rows, Rball) {
   const flat = [];   // {row, idx, bead, p:[x,y,z]}
   // экваторный ряд — середина блока самых длинных рядов
@@ -50,6 +78,13 @@ function buildLayout(rows, Rball) {
   const maxIdx = [];
   rows.forEach((r, i) => { if (rowC(r) === maxC) maxIdx.push(i); });
   const eq = maxIdx[Math.floor(maxIdx.length / 2)];
+  // естественный радиус плетения (та же оценка, что в решателе). Углы
+  // (фиты колец и стек шагов) считаем от НЕГО: при бусине больше
+  // естественной стартовая укладка — равномерно раздутая на целевую
+  // сферу (те же широты), а не сбившаяся к полюсам куча. Размещение —
+  // всегда на целевой сфере Rball
+  const RvNat = naturalR(rows);
+  const Ra = Rball > RvNat ? RvNat : Rball;
   // θ ряда: широта, на которой длина нити кольца ложится в окружность сферы
   // (ближе к полюсу ряд не поднимется — окружность мала); между фитами ряды
   // расходятся стеком с шагом утопленного мозаичного ряда. Если ряды не
@@ -58,13 +93,13 @@ function buildLayout(rows, Rball) {
   const steps = [0];
   rows.forEach((r, i) => {
     if (!i) return;
-    const rc = Rball + BEAD[r.beads[0].s].h / 2;
+    const rc = Ra + BEAD[r.beads[0].s].h / 2;
     steps.push(0.6 * (BEAD[rows[i - 1].beads[0].s].h + BEAD[r.beads[0].s].h) / 2 / rc);
   });
   const stack = k => {
     let a = 0;
     return rows.map((r, i) => {
-      const rc = Rball + BEAD[r.beads[0].s].h / 2;
+      const rc = Ra + BEAD[r.beads[0].s].h / 2;
       const fit = Math.asin(Math.min(0.999, rowC(r) / (2 * Math.PI) / rc));
       a = i ? a + steps[i] * k : fit;
       if (i < eq) a = Math.min(a, Math.PI / 2); // нижняя половина — не выше экватора
@@ -144,12 +179,6 @@ function makeSolver(layout, rows, Rball) {
   const W_PUSH = 0.20;    // развод сжатых внутрикольцевых связей (слабее коллизий)
   const COL_PUSH = 0.50;  // выталкивание в коллизиях — сильнейшая коррекция
   const SPH = 0.45;       // мягкое округление виртуальной сферой
-  const NEST = 0.25;      // мм, допуск утапливания для пар одной нити
-  const thread = new Set();
-  for (const [a, b] of links) {
-    thread.add(a.row + ':' + a.idx + '-' + b.row + ':' + b.idx);
-    thread.add(b.row + ':' + b.idx + '-' + a.row + ':' + a.idx);
-  }
   for (const f of flat) f.r = BEAD[f.bead.s].h / 2;
   updateCaps(flat, rows);
   const cell = 3.0; // ячейка сетки коллизий, мм
@@ -172,12 +201,13 @@ function makeSolver(layout, rows, Rball) {
           if (g === f) continue;
           // коллизии действуют на ВСЕ пары, включая пары одной нити
           // (кольцо/пейот): без жёсткого пола расстояния сжатые кольца
-          // сминаются внахлёст («утопленные» бисерины). Нитевым парам
-          // даём малый допуск утапливания, как в реальном плетении.
-          const linked = thread.has(f.row + ':' + f.idx + '-' + g.row + ':' + g.idx);
+          // сминаются внахлёст («утопленные» бисерины). Допуск
+          // утапливания — как в реальном плетении: торцы соседей по
+          // кольцу 0.25 мм, межрядные пары 0.9 мм (мозаичные ряды
+          // утапливаются на ~0.6 высоты бисерины)
           const ex = cg[0] - cf[0], ey = cg[1] - cf[1], ez = cg[2] - cf[2];
           const d = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1e-6;
-          const t = f.r + g.r - (linked ? NEST : 0);
+          const t = f.r + g.r - (f.row === g.row ? 0.25 : 0.9);
           if (d < t) {
             const push = (t - d) / d * COL_PUSH;
             const mx = ex * push, my = ey * push, mz = ez * push;
@@ -191,12 +221,22 @@ function makeSolver(layout, rows, Rball) {
     }
   };
   // виртуальная сфера обжатия: радиус = max(введённый старт, оценка
-  // минимума по площади бисера — площадь колец × 0.8 с учётом частичного
-  // утапливания рядов). Размер задаёт само плетение, сфера лишь мягко
-  // округляет форму; жёсткого натягивания на бусину нет.
-  let area = 0;
-  for (const f of flat) area += BEAD[f.bead.s].w * BEAD[f.bead.s].h;
-  const Rv = Math.max(Rball, Math.sqrt(area * 0.8 / (4 * Math.PI)) - BEAD[0].h / 2);
+  // минимума по площади плетения; footprint бисерины на сфере ≈ w × 0.6h
+  // из-за утопленного шага рядов). Схема от бусины не зависит — размер
+  // можно менять после генерации (поле «Бусина, мм», без перегенерации)
+  const RvNat = naturalR(rows);
+  const Rv = Math.max(Rball, RvNat);
+  // равномерное «раздувание» при бусине больше естественного размера
+  // плетения: длины связей РЕШАТЕЛЯ растут пропорционально сфере
+  // (k = Rv/RvNat). Без этого замкнутые кольца держат свой радиус,
+  // сбиваются к полюсам в кучу, а экватор рвётся щелями. С масштабом
+  // укладка раздувается равномерно: бисерины разъезжаются по всему
+  // свободному месту, в том числе у полюсов. Истинные длины связей
+  // (layout.links) не трогаем — карта натяжения и зазор в статусе
+  // честно показывают, насколько плетение свободно на этой бусине
+  const kin = RvNat > 0 ? Rv / RvNat : 1;
+  const inflate = kin > 1.0001;
+  const slinks = inflate ? links.map(l => [l[0], l[1], l[2] * kin]) : links;
   // сфера-оболочка: центры на Rv + h/2 (мелкий бисер сидит глубже);
   // и не провалиться внутрь, и не улететь наружу
   const toSphere = () => {
@@ -210,8 +250,14 @@ function makeSolver(layout, rows, Rball) {
   const step = () => {
     // связи нити: кольцо — двустороннее (сжатие жёстко, растяжение слабо),
     // пейот — только подтяжка с люфтом 0.1 мм (нить слегка растяжима:
-    // в тесных местах ход отдаётся коллизиям, чтобы не давить бисерины)
-    for (const [a, b, t] of links) {
+    // в тесных местах ход отдаётся коллизиям, чтобы не давить бисерины).
+    // slinks — связи с длинами, растянутыми k-кратно сфере (см. выше).
+    // Пейот остаётся только подтяжкой: у мозаичных пар естественная
+    // дистанция — утопленное вложение (~0.6h), а не касание, поэтому
+    // «расталкивание» до t·k ломало бы укладку. Распределение рядов
+    // по меридиану при раздувании держат кольцевые связи (радиус
+    // кольца жёстко привязан к широте на сфере) + правильный старт
+    for (const [a, b, t] of slinks) {
       const dx = b.p[0] - a.p[0], dy = b.p[1] - a.p[1], dz = b.p[2] - a.p[2];
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
       if (a.row !== b.row && d < t + 0.1) continue;
@@ -239,9 +285,30 @@ function makeSolver(layout, rows, Rball) {
   return { step, finish, Rv: () => Rv };
 }
 
-// пакетная укладка (правки размера бисерин, загрузка JSON);
+// равномерное раздувание для бусины больше естественного размера:
+// сначала укладка на естественной сфере (отточенное равновесие k=1),
+// затем позиции ×k — это ТОЧНОЕ решение раздутой задачи: все длины
+// растут ×k, бисерины расходятся по всей сфере, включая полюса, а не
+// сбиваются к полюсам кучей с рваным экватором. Дальше решателю
+// остаётся только шлифовка. Возвращает true, если раздували
+function naturalInflate(layout, rows, Rball, iters) {
+  const RvNat = naturalR(rows);
+  if (Rball <= RvNat * 1.0001) return false;
+  const s0 = makeSolver(layout, rows, RvNat);
+  for (let i = 0; i < iters; i++) s0.step();
+  s0.finish();
+  const k = Rball / RvNat;
+  for (const f of layout.flat) {
+    f.p[0] *= k; f.p[1] *= k; f.p[2] *= k;
+  }
+  updateCaps(layout.flat, rows);
+  return true;
+}
+
+// пакетная укладка (правки размера бисерин, загрузка JSON, смена бусины);
 // возвращает фактический радиус виртуальной сферы
 function relax(layout, rows, Rball, iters) {
+  naturalInflate(layout, rows, Rball, iters);
   const s = makeSolver(layout, rows, Rball);
   for (let i = 0; i < iters; i++) s.step();
   s.finish();
@@ -308,6 +375,7 @@ const state = {
   layout: null,           // {flat, links} последней укладки
   tens: null,             // натяжение: [row][idx] -> зазор связи, мм
   showTension: false,     // подсветка натяжения
+  showThread: false,      // показ связей нити (3D и 2D)
 };
 
 function beadCount(m) { return m.rows.reduce((a, r) => a + r.beads.length, 0); }
@@ -316,15 +384,18 @@ function beadCount(m) { return m.rows.reduce((a, r) => a + r.beads.length, 0); }
 function generate(ballMm, middle) {
   ballMm = Math.max(5, ballMm || 14.5);
   middle = Math.max(1, Math.min(40, middle || 11));
+  const R = ballMm / 2;
   const rows = patternRows(middle).map(r => ({
     th: 0,
     beads: r.sizes.map(s => ({ c: 0, s })),
   }));
-  const R = ballMm / 2;
   state.model = { R, middle, rows, Rres: null };
   state.sel = null;
   state.layout = buildLayout(rows, R);
   state.tens = null;
+  // при старте больше естественного размера — сразу естественная
+  // укладка и равномерное раздувание (анимация лишь шлифует)
+  naturalInflate(state.layout, rows, R, 400);
   rebuild3D();
   updateCam();
   draw2D();
@@ -356,7 +427,7 @@ function animateRelax(totalIters) {
   requestAnimationFrame(frame);
 }
 // ================= 3D =================
-let renderer, scene, camera, meshes, beadList, selMarker, ballMesh, rot = { x: 0.4, y: 0 }, drag = null;
+let renderer, scene, camera, meshes, beadList, selMarker, ballMesh, threadLines = null, rot = { x: 0.4, y: 0 }, drag = null;
 
 function init3D() {
   const canvas = document.getElementById('c3d');
@@ -468,6 +539,36 @@ function rebuild3D() {
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
     scene.add(im); meshes.push(im);
   }
+  rebuildThreadLines();
+}
+
+// связи нити между бисеринами (галочка «нить»): по одному отрезку на
+// связь; позиции обновляются на каждом кадре укладки вместе с бисеринами
+function rebuildThreadLines() {
+  if (threadLines) {
+    scene.remove(threadLines);
+    threadLines.geometry.dispose();
+    threadLines.material.dispose();
+    threadLines = null;
+  }
+  const lk = state.layout;
+  if (!state.showThread || !lk || !lk.links.length) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lk.links.length * 6), 3));
+  threadLines = new THREE.LineSegments(g,
+    new THREE.LineBasicMaterial({ color: 0x181818, transparent: true, opacity: 0.6 }));
+  updateThreadLines();
+  scene.add(threadLines);
+}
+
+function updateThreadLines() {
+  if (!threadLines || !state.layout) return;
+  const attr = threadLines.geometry.attributes.position;
+  state.layout.links.forEach(([a, b], i) => {
+    attr.setXYZ(i * 2, a.p[0], a.p[1], a.p[2]);
+    attr.setXYZ(i * 2 + 1, b.p[0], b.p[1], b.p[2]);
+  });
+  attr.needsUpdate = true;
 }
 
 // обновить матрицы инстансов из текущих позиций модели (без пересборки)
@@ -486,6 +587,7 @@ function refreshBeadMatrices() {
     rec.mesh.setMatrixAt(rec.inst, dummy.matrix);
   }
   meshes.forEach(im => { im.instanceMatrix.needsUpdate = true; });
+  updateThreadLines();
   if (ballMesh) ballMesh.scale.setScalar(innerBall(m.rows));
 }
 
@@ -550,7 +652,9 @@ function draw2D() {
   const W = Math.max(400, wrap.clientWidth - 20);
   if (!m) { c2d.width = W; c2d.height = 100; return; }
   // 2D — «плетёный» вид: бисерины ряда вплотную (порядок как в 3D-кольце)
-  const pxmm = Math.min((W - 70) / (16 * BEAD[0].w), 20 / BEAD[0].w);
+  // масштаб — по самому длинному ряду (число бисерин теперь плавает)
+  const maxC = m.rows.reduce((a, r) => Math.max(a, rowC(r)), 0) || BEAD[0].w;
+  const pxmm = Math.min((W - 70) / maxC, 20 / BEAD[0].w);
   const rh = BEAD[0].h * pxmm * 1.4;
   c2d.width = W; c2d.height = m.rows.length * rh + 30;
   ctx.clearRect(0, 0, c2d.width, c2d.height);
@@ -566,8 +670,24 @@ function draw2D() {
       xs.push(xs[j - 1] + gap);
     }
     d2.rows.push({ y, x0, xs, n: row.beads.length, rowW });
+  });
+  // связи нити — под бисеринами (галочка «нить»): видно, какая с какой
+  if (state.showThread && state.layout) {
+    ctx.strokeStyle = 'rgba(25,25,25,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const [a, b] of state.layout.links) {
+      const ra = d2.rows[a.row], rb = d2.rows[b.row];
+      if (!ra || !rb) continue;
+      ctx.moveTo(ra.xs[a.idx], ra.y);
+      ctx.lineTo(rb.xs[b.idx], rb.y);
+    }
+    ctx.stroke();
+  }
+  m.rows.forEach((row, ri) => {
+    const y = d2.rows[ri].y;
     row.beads.forEach((b, j) => {
-      const x = xs[j];
+      const x = d2.rows[ri].xs[j];
       const r = BEAD[b.s].w * pxmm * 0.48;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = state.showTension && state.tens ? tensColor(ri, j) : state.palette[b.c].c;
@@ -588,7 +708,7 @@ function draw2D() {
       }
     });
     ctx.fillStyle = '#aaa'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText(ri + 1, x0 - 6, y);
+    ctx.fillText(ri + 1, d2.rows[ri].x0 - 6, y);
   });
 }
 
@@ -765,6 +885,19 @@ document.getElementById('selSmall').onchange = e => {
 document.getElementById('tension').onchange = e => {
   state.showTension = e.target.checked;
   if (state.model) { rebuild3D(); draw2D(); }
+};
+document.getElementById('threadShow').onchange = e => {
+  state.showThread = e.target.checked;
+  if (state.model) { rebuild3D(); draw2D(); }
+};
+// смена размера бусины — без перегенерации: схема и раскраска те же,
+// укладка пересчитывается под новую сферу обжатия
+document.getElementById('ballMm').onchange = e => {
+  const m = state.model;
+  if (!m) return;
+  m.R = Math.max(5, parseFloat(e.target.value) || 14.5) / 2;
+  reRelax(300);
+  rebuild3D(); updateCam(); draw2D(); updateStat();
 };
 
 init3D();
