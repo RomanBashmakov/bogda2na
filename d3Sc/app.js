@@ -1216,6 +1216,9 @@ async function loadDefaultList() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const html = await r.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
+    // href из листинга уже URL-закодирован (%20 и т.п.) — в value берём
+    // как есть (без повторного encodeURIComponent), в подписи раскодируем
+    const disp = f => { try { return decodeURIComponent(f); } catch (_) { return f; } };
     const files = [...doc.querySelectorAll('a')]
       .map(a => a.getAttribute('href'))
       .filter(h => h && h.endsWith('.json'));
@@ -1224,16 +1227,23 @@ async function loadDefaultList() {
       return;
     }
     sel.innerHTML = files
-      .map(f => `<option value="default/${encodeURIComponent(f)}">${f}</option>`)
+      .map(f => `<option value="default/${f}">${disp(f)}</option>`)
       .join('');
-    // грузим первый по умолчанию
-    await loadFromUrl(sel.value);
   } catch (e) {
     console.warn('Не удалось получить список default/:', e);
     sel.innerHTML = '<option>— default/ не найден —</option>';
     // fallback: если папки нет, генерируем дефолт как раньше
     generate(14.5, 11);
+    return;
   }
+  // автозагрузка: неудача одной схемы не должна чистить всё меню —
+  // пробуем первую, при ошибке следующие по очереди
+  for (const opt of [...sel.options]) {
+    try { await loadFromUrl(opt.value); return; }
+    catch (e) { console.warn('Схема не загрузилась:', opt.value, e); }
+  }
+  console.warn('Ни одна схема из default/ не загрузилась');
+  generate(14.5, 11);
 }
 
 document.getElementById('defaultSel').onchange = async e => {
