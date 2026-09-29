@@ -569,16 +569,26 @@ function updateCam() {
   const cx = Math.cos(rot.x);
   camera.position.set(d * cx * Math.sin(rot.y), d * Math.sin(rot.x), d * cx * Math.cos(rot.y));
   camera.lookAt(0, 0, 0);
-  setDepthFade(1);      // ← добавил: 1 = задний план полностью в фоне
+  // туман зависит от расстояния камеры — пере применяем текущее значение
+  // ползунка «Глубина» (раньше здесь принудительно ставилась 1 и сбрасывала выбор)
+  setDepthFade(parseFloat(document.getElementById('depthFade').value) || 0);
 }
 
-// 0 = без тумана, 1 = задний план полностью в фоне
+// 0 = без тумана; v = насколько задний полюс сливается с фоном
+// (1 ≈ прежний максимум — задний план почти растворяется, 0.5 — вдвое слабее;
+// экватор и передняя половина всегда чистые)
 function setDepthFade(v) {
   if (!scene.fog) return;
   const R = state.model ? state.model.R : 10;
   const mid = R * 3.2;                    // расстояние до центра сферы
-  scene.fog.near = mid - R * v * 1.2;
-  scene.fog.far  = mid + R * v * 1.2 + 0.001;
+  if (v <= 0) {                           // выкл: туман убираем за пределы сцены
+    scene.fog.near = mid + 1e6;
+    scene.fog.far  = mid + 1e6 + 1;
+    return;
+  }
+  const back = v * 0.92;                  // затемнение заднего полюса
+  scene.fog.near = mid;                   // экватор — без тумана
+  scene.fog.far  = mid + R / back;        // задний полюс затемнён ровно на back
 }
 
 function beadPos(m, ri, j) {
@@ -1265,5 +1275,5 @@ document.querySelectorAll('input[name=view2d]').forEach(el => {
 init3D();
 renderPalette();
 loadDefaultList();
-setDepthFade(1);      // ← включить туман с дефолтной глубиной
+setDepthFade(parseFloat(document.getElementById('depthFade').value) || 0);
 animate();
