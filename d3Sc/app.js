@@ -28,7 +28,7 @@ function patternRows(middle) {
   const crownHi = [
     [S, 16], [S, 16], [D, 8], [S, 16], [S, 8], [D, 8], [S, 4], [D, 4],
   ];
-  
+
   const N = 16;                      // бисерин на экваторе
   const M = 10;                      // бисерин на стыке с венцом (граница середины)
   const per = Math.floor(middle / 2), odd = middle % 2;
@@ -442,6 +442,7 @@ const state = {
   showTension: false,     // подсветка натяжения
   showThread: false,      // показ связей нити (3D и 2D)
   physics: false,   // false = без физики, только buildLayout
+  view2dMode: 'circles',   // 'circles' | 'stitch'
 };
 
 function beadCount(m) { return m.rows.reduce((a, r) => a + r.beads.length, 0); }
@@ -764,6 +765,7 @@ const c2d = document.getElementById('c2d'), ctx = c2d.getContext('2d');
 let d2 = null; // геометрия развертки
 
 function draw2D() {
+  if (state.view2dMode === 'stitch') return draw2DStitch();
   const m = state.model;
   const wrap = document.getElementById('panel2d');
   const W = Math.max(400, wrap.clientWidth - 20);
@@ -827,6 +829,136 @@ function draw2D() {
     ctx.fillStyle = '#aaa'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
     ctx.fillText(ri + 1, d2.rows[ri].x0 - 6, y);
   });
+}
+
+function draw2DStitch() {
+  const m = state.model;
+  const wrap = document.getElementById('panel2d');
+  const W = Math.max(400, wrap.clientWidth - 20);
+  if (!m) { c2d.width = W; c2d.height = 100; return; }
+
+  const maxN = m.rows.reduce((a, r) => Math.max(a, r.beads.length), 0) || 8;
+  const cellPx = Math.min((W - 70) / maxN, 26);
+  const gridPxW = maxN * cellPx;
+  const gridX0 = (W - gridPxW) / 2;
+
+  const beadH = cellPx * 1.7;              // высота капсулы
+  const rh = beadH * 0.5;                  // ← шаг = ПОЛОВИНА высоты → перекрытие 50%
+  const beadW = cellPx * 0.5;              // ширина, вплотную в ряду
+
+  c2d.width = W;
+  c2d.height = m.rows.length * rh + beadH + 20;
+  ctx.clearRect(0, 0, c2d.width, c2d.height);
+  d2 = { pxmm: cellPx / BEAD[0].h, rh, rows: [] };
+
+  // X-позиции: нечётные ряды сдвинуты на ПОЛОВИНУ бисерины В СИСТЕМЕ СВОЕГО РЯДА
+  const rowMeta = [];
+  m.rows.forEach((row, ri) => {
+    const n = row.beads.length;
+    const step = maxN / n;                  // сколько ячеек = 1 бисерина
+    const start = (step - 1) / 2;
+    const shift = (ri % 2) * 0.5 * step;    // половина бисерины
+    const xs = [];
+    for (let j = 0; j < n; j++) xs.push(gridX0 + (start + j * step + shift) * cellPx);
+    rowMeta.push({ xs, n, ri });
+  });
+
+  // точки-грунт на фоне
+  const dotR = Math.max(1, cellPx * 0.05);
+  ctx.fillStyle = '#666';
+  for (let py = -1; py <= m.rows.length * 2 + 2; py++) {
+    const y = 10 + (py * beadH) / 2;
+    const xShift = ((py + 1) % 2) * (cellPx / 4);
+    for (let px = -1; px <= maxN * 2; px++) {
+      ctx.beginPath();
+      ctx.arc(gridX0 + (px * cellPx) / 2 + xShift, y, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const drawBead = (ri, j) => {
+    const b = m.rows[ri].beads[j];
+    const cx = rowMeta[ri].xs[j];
+    const y = 10 + ri * rh + beadH / 2;
+    const isBig = b.s === 0;
+    const fill = state.showTension && state.tens
+      ? tensColor(ri, j)
+      : state.palette[b.c].c;
+
+    if (isBig) {
+      roundRect(cx - beadW / 2, y - beadH / 2, beadW, beadH, beadW * 0.35, fill);
+      if (beadW >= 9) {
+        ctx.fillStyle = '#000';
+        ctx.font = `${Math.floor(beadW * 0.55)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(state.palette[b.c].b, cx, y);
+      }
+    } else {
+      const s2 = beadW * 0.65;
+      roundRect(cx - s2 / 2, y - s2 / 2, s2, s2, s2 * 0.3, fill);
+      if (s2 >= 7) {
+        ctx.fillStyle = '#000';
+        ctx.font = `${Math.floor(s2 * 0.55)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(state.palette[b.c].b, cx, y);
+      }
+    }
+
+    if (state.sel && state.sel.row === ri && state.sel.idx === j) {
+      ctx.beginPath();
+      ctx.arc(cx, y, Math.max(beadW, beadH) * 0.55, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00c000';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+  };
+
+  m.rows.forEach((row, ri) => {
+    d2.rows.push({
+      y: 10 + ri * rh + beadH / 2,
+      x0: gridX0,
+      xs: rowMeta[ri].xs,
+      n: rowMeta[ri].n,
+      rowW: gridPxW,
+    });
+  });
+
+  // сначала чётные (на фоне), потом нечётные (поверх) — последние ложатся
+  // в ложбинки между чётными и перекрывают их нижнюю половину
+  for (let ri = 0; ri < m.rows.length; ri += 2)
+    for (let j = 0; j < m.rows[ri].beads.length; j++) drawBead(ri, j);
+  for (let ri = 1; ri < m.rows.length; ri += 2)
+    for (let j = 0; j < m.rows[ri].beads.length; j++) drawBead(ri, j);
+
+  ctx.fillStyle = '#aaa';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  m.rows.forEach((row, ri) => {
+    ctx.fillText(ri + 1, gridX0 - 6, 10 + ri * rh + beadH / 2);
+  });
+}
+
+
+// вспомогательная: закруглённый прямоугольник с чёрной обводкой
+function roundRect(x, y, w, h, r, fill) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+  ctx.stroke();
 }
 
 c2d.addEventListener('pointerdown', e => {
@@ -917,36 +1049,36 @@ function saveJSON() {
   a.click();
 }
 
+function applyLoadedJSON(d) {
+  if (d.type !== 'd3sc-sphere-v2') throw new Error('не файл d3sc v2');
+  state.palette = d.palette;
+  state.model = {
+    R: d.R,
+    middle: d.middle || 11,
+    rows: d.rows.map(r => ({
+      th: r.th || 0,
+      beads: r.beads.map(a => ({ c: a[0], s: a[1], p: [0, 0, 0] })),
+    })),
+  };
+  document.getElementById('ballMm').value = (d.R * 2).toFixed(1);
+  document.getElementById('midRows').value = d.middle || 11;
+  relaxAnim = null;
+  state.layout = buildLayout(state.model.rows, d.R);
+  state.model.Rres = relax(state.layout, state.model.rows, d.R, 500);
+  computeTension();
+  state.sel = null;
+  renderPalette();
+  rebuild3D();
+  updateCam();
+  draw2D();
+  updateStat();
+}
+
 function loadJSON(file) {
   const rd = new FileReader();
   rd.onload = () => {
-    try {
-      const d = JSON.parse(rd.result);
-      if (d.type !== 'd3sc-sphere-v2') throw new Error('не файл d3sc v2');
-      state.palette = d.palette;
-      state.model = {
-        R: d.R,
-        middle: d.middle || 11,
-        rows: d.rows.map(r => ({
-          th: r.th || 0, beads: r.beads.map(a => ({ c: a[0], s: a[1], p: [0, 0, 0] })),
-        })),
-      };
-
-      document.getElementById('ballMm').value = (d.R * 2).toFixed(1);
-      document.getElementById('midRows').value = d.middle || 11;
-
-      // восстановить физическую укладку — мгновенно, пакетом
-      relaxAnim = null;
-      state.layout = buildLayout(state.model.rows, d.R);
-      state.model.Rres = relax(state.layout, state.model.rows, d.R, 500);
-
-      snapshotPositions();
-      document.getElementById('scaleBall').value = '1';
-
-      computeTension();
-      state.sel = null;
-      renderPalette(); rebuild3D(); updateCam(); draw2D(); updateStat();
-    } catch (e) { alert('Не удалось открыть: ' + e.message); }
+    try { applyLoadedJSON(JSON.parse(rd.result)); }
+    catch (e) { alert('Не удалось открыть: ' + e.message); }
   };
   rd.readAsText(file);
 }
@@ -1070,8 +1202,55 @@ document.getElementById('ballMm').onchange = e => {
   relayout(R);
 };
 
+async function loadFromUrl(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} для ${url}`);
+  applyLoadedJSON(await r.json());
+}
+
+async function loadDefaultList() {
+  const sel = document.getElementById('defaultSel');
+  try {
+    // Python http.server отдаёт HTML со списком файлов в папке — парсим его
+    const r = await fetch('default/');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const html = await r.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const files = [...doc.querySelectorAll('a')]
+      .map(a => a.getAttribute('href'))
+      .filter(h => h && h.endsWith('.json'));
+    if (!files.length) {
+      sel.innerHTML = '<option>— пусто в default/ —</option>';
+      return;
+    }
+    sel.innerHTML = files
+      .map(f => `<option value="default/${encodeURIComponent(f)}">${f}</option>`)
+      .join('');
+    // грузим первый по умолчанию
+    await loadFromUrl(sel.value);
+  } catch (e) {
+    console.warn('Не удалось получить список default/:', e);
+    sel.innerHTML = '<option>— default/ не найден —</option>';
+    // fallback: если папки нет, генерируем дефолт как раньше
+    generate(14.5, 11);
+  }
+}
+
+document.getElementById('defaultSel').onchange = async e => {
+  if (!e.target.value) return;
+  try { await loadFromUrl(e.target.value); }
+  catch (err) { alert('Не удалось загрузить: ' + err.message); }
+};
+
+document.querySelectorAll('input[name=view2d]').forEach(el => {
+  el.onchange = e => {
+    state.view2dMode = e.target.value;
+    draw2D();
+  };
+});
+
 init3D();
 renderPalette();
-generate(14.5, 11);
+loadDefaultList();
 setDepthFade(1);      // ← включить туман с дефолтной глубиной
 animate();

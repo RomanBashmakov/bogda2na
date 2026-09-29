@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>d3Sc — бисерная сфера (мозаичное плетение)</title>
-<link rel="stylesheet" href="style.css">
+<script>
+  /* локальная разработка: версия с меткой времени — браузер всегда берёт
+     свежий style.css/app.js с диска, кэш не залипает */
+  document.write('<link rel="stylesheet" href="style.css?v=' + Date.now() + '">');
+</script>
 </head>
 <body>
 <header id="topbar">
@@ -13,6 +17,9 @@
   <label title="Только визуальное раздутие: бисерины разъезжаются, паттерн не пересчитывается">Масштаб <input id="scaleBall" type="range" min="0.3" max="2.5" step="0.02" value="1" style="width:8em; vertical-align:middle"></label>
   <label title="Сколько средних рядов Delica по «пояску» бусины">Средних рядов Delica <input id="midRows" type="number" min="1" max="40" value="11"></label>
   <button id="btnGen">Сгенерировать</button>
+  <select id="defaultSel" title="Предустановленные схемы">
+    <option>— загрузка —</option>
+  </select>
   <button id="btnSave">Сохранить JSON</button>
   <button id="btnLoad">Открыть JSON</button>
   <button id="btnPng">Снимок 3D (PNG)</button>
@@ -26,8 +33,12 @@
     <canvas id="c3d"></canvas>
   </section>
   <section id="panel2d">
-    <div class="hint">2D-развёртка: клик по бисерине — покрасить · клик в промежутке — вставить · Shift+клик — удалить. Ряды от полюса вниз.</div>
-    <canvas id="c2d"></canvas>
+  <div class="hint">2D-развёртка: клик по бисерине — покрасить · клик в промежутке — вставить · Shift+клик — удалить. Ряды от полюса вниз.</div>
+  <div class="viewMode">
+    <label><input type="radio" name="view2d" value="circles" checked> кружки</label>
+    <label><input type="radio" name="view2d" value="stitch"> стежки</label>
+  </div>
+  <div id="c2dWrap"><canvas id="c2d"></canvas></div>
   </section>
 </div>
 
@@ -58,6 +69,8 @@
 </div>
 
 <script src="three.min.js"></script>
-<script src="app.js"></script>
+<script>
+  document.write('<script src="app.js?v=' + Date.now() + '"><\/script>');
+</script>
 </body>
 </html>
