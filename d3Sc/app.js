@@ -1231,7 +1231,10 @@ async function loadDefaultList() {
       .join('');
   } catch (e) {
     console.warn('Не удалось получить список default/:', e);
-    sel.innerHTML = '<option>— default/ не найден —</option>';
+    // file://: браузер запрещает чтение папки — говорим причину, а не «не найден»
+    sel.innerHTML = location.protocol === 'file:'
+      ? '<option>— запустите ./run.sh (нужен http) —</option>'
+      : '<option>— default/ не найден —</option>';
     // fallback: если папки нет, генерируем дефолт как раньше
     generate(14.5, 11);
     return;
