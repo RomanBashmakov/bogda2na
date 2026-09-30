@@ -24,6 +24,7 @@
   <button id="btnLoad">Открыть JSON</button>
   <button id="btnPng">Снимок 3D (PNG)</button>
   <button id="btnPrint" class="primary">Печать схемы</button>
+  <button id="btnUndo" title="Отменить последнее действие (Ctrl+Z)">↶ Отменить</button>
   <input type="file" id="fileJson" accept=".json" hidden>
 </header>
 
@@ -33,7 +34,7 @@
     <canvas id="c3d"></canvas>
   </section>
   <section id="panel2d">
-  <div class="hint">2D-развёртка: клик по бисерине — покрасить · клик в промежутке — вставить · Shift+клик — удалить. Ряды от полюса вниз.</div>
+  <div class="hint">2D: клик по ячейке — добавить/покрасить · Shift+клик — убрать · клик по номеру ряда — вставить ряд над ним · Shift+клик по номеру — удалить ряд · клик выше/ниже сетки — добавить ряд сверху/снизу</div>
   <div class="viewMode">
     <label><input type="radio" name="view2d" value="circles" checked> кружки</label>
     <label><input type="radio" name="view2d" value="stitch"> стежки</label>
