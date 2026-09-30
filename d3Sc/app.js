@@ -84,36 +84,52 @@ function buildLayout(rows, Rball) {
   const N = rows.length;
   const R_arc = Rball + BEAD[firstS(rows[Math.floor(N / 2)])].h / 2;
 
-  // 1. Естественный шаг по ДУГЕ МЕРИДИАНА для каждой пары соседей
+  // ФИЗИЧЕСКОЕ КОЛЬЦО = живые бисерины ряда ОДНОЙ чётности колонок
+  // (как в виде «стежки»: нечётные колонки — полряда ниже). Один текстовый
+  // ряд схемы несёт два чередующихся кольца мозаики.
+  const parS = (ri, par) => {
+    for (let j = par; j < rows[ri].beads.length; j += 2)
+      if (rows[ri].beads[j]) return rows[ri].beads[j].s;
+    return firstS(rows[ri]);
+  };
+  const rings = [];                    // уровень L = 2*ri + par
+  for (let ri = 0; ri < N; ri++) for (let par = 0; par < 2; par++) {
+    const live = [];
+    rows[ri].beads.forEach((b, j) => { if (b && j % 2 === par) live.push(j); });
+    rings.push({ ri, par, s: parS(ri, par), live });
+  }
+  const NL = rings.length;             // 2N уровней
+
+  // 1. Шаг по дуге между соседними уровнями (полшага прежнего межрядного)
   const steps = [0];
-  for (let i = 1; i < N; i++) {
-    const h1 = BEAD[firstS(rows[i - 1])].h;
-    const h2 = BEAD[firstS(rows[i])].h;
-    steps.push(0.6 * (h1 + h2) / 2);   // утопание на 40% средней высоты
+  for (let i = 1; i < NL; i++) {
+    const h1 = BEAD[rings[i - 1].s].h;
+    const h2 = BEAD[rings[i].s].h;
+    steps.push(0.3 * (h1 + h2) / 2);  // утопание на 40% средней высоты
   }
   const S_total = steps.reduce((a, b) => a + b, 0);
 
   // 2. Сколько дуги есть в наличии
-  const L = Math.PI * R_arc;
-  const k = L / S_total;              // растяжение/сжатие паттерна под сферу
+  const arcAll = Math.PI * R_arc;
+  const k = arcAll / S_total;         // растяжение/сжатие паттерна под сферу
 
   // 3. Накопленная дуга от верхнего полюса
   const theta = [0];
   let s = 0;
-  for (let i = 1; i < N; i++) {
+  for (let i = 1; i < NL; i++) {
     s += steps[i] * k;
     theta.push(s / R_arc);
   }
   // 4. Центруем середину массива на экваторе
-  const eq = Math.floor(N / 2);
+  const eq = Math.floor(NL / 2);
   const shift = Math.PI / 2 - theta[eq];
-  for (let i = 0; i < N; i++) theta[i] += shift;
-  for (let i = 0; i < N; i++) theta[i] = Math.max(0.02, Math.min(Math.PI - 0.02, theta[i]));
+  for (let i = 0; i < NL; i++) theta[i] += shift;
+  for (let i = 0; i < NL; i++) theta[i] = Math.max(0.02, Math.min(Math.PI - 0.02, theta[i]));
 
-  // ограничение: ряд не может сидеть на кольце, которое меньше его ширины
-  for (let i = 0; i < N; i++) {
-    const rowWidth = rowC(rows[i]);
-    const r_min = rowWidth / (2 * Math.PI);
+  // ограничение: кольцо не может сидеть шире своей окружности
+  for (let i = 0; i < NL; i++) {
+    const w = rings[i].live.reduce((a, j) => a + BEAD[rows[rings[i].ri].beads[j].s].w, 0);
+    const r_min = w / (2 * Math.PI);
     const th_min = Math.asin(Math.min(1, r_min / R_arc));
     if (i < eq) {
       theta[i] = Math.max(theta[i], th_min);
@@ -126,59 +142,58 @@ function buildLayout(rows, Rball) {
   for (let i = 1; i <= eq; i++) {
     if (theta[i] < theta[i - 1] + 0.001) theta[i] = theta[i - 1] + 0.001;
   }
-  for (let i = N - 2; i >= eq; i--) {
+  for (let i = NL - 2; i >= eq; i--) {
     if (theta[i] > theta[i + 1] - 0.001) theta[i] = theta[i + 1] - 0.001;
   }
 
   // 5. Расставляем бисерины (пустые ячейки сетки — null — пропускаем)
   const fidx = rows.map(r => r.beads.map(() => -1));   // (row, j) -> индекс в flat
-  rows.forEach((row, ri) => {
-    const th = theta[ri];
-    row.th = th;
+  rings.forEach((ring, L) => {
+    const th = theta[L];
+    if (ring.par === 0) rows[ring.ri].th = th;   // th ряда — уровень чётного кольца
     const Y = R_arc * Math.cos(th);
     const r_ring = R_arc * Math.sin(th);
-    const live = row.beads.map((b, j) => [b, j]).filter(([b]) => b);
-    const n = live.length || 1;
-    live.forEach(([b, j], k) => {
-      const phi = (k + (ri % 2) * 0.5) / n * 2 * Math.PI;
+    const n = ring.live.length || 1;
+    ring.live.forEach((j, kk) => {
+      const b = rows[ring.ri].beads[j];
+      const phi = (kk + ring.par * 0.5) / n * 2 * Math.PI;  // кольца чередуются вполшага
       const p = [r_ring * Math.cos(phi), Y, r_ring * Math.sin(phi)];
       b.p = p;
-      fidx[ri][j] = flat.length;
-      flat.push({ row: ri, idx: j, bead: b, p, homeTheta: th, homePhi: phi });
-
+      fidx[ring.ri][j] = flat.length;
+      flat.push({ row: ring.ri, idx: j, bead: b, p, homeTheta: th, homePhi: phi });
     });
   });
 
-
-
   // индекс (row,idx) -> flat
   const at = (ri, j) => flat[fidx[ri][j]];
-  // связи нити: ребёнок (ряд i+1) -> 2 ближайших родителя (ряд i) по углу
-  const links = [];
   const ang = f => Math.atan2(f.p[2], f.p[0]);
-  for (let ri = 1; ri < rows.length; ri++) {
-    const parLive = rows[ri - 1].beads.map((b, j) => [b, j]).filter(([b]) => b);
-    const chLive = rows[ri].beads.map((b, j) => [b, j]).filter(([b]) => b);
-    const parAng = [];
-    for (const [, pj] of parLive) parAng.push(ang(at(ri - 1, pj)));
-    for (const [cb, j] of chLive) {
-      const a = ang(at(ri, j));
-      const sorted = parAng.map((pa, pj) => [Math.abs((((a - pa) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI), parLive[pj][1]])
-        .sort((x, y) => x[0] - y[0]);
-      const t = 0.6 * (BEAD[cb.s].h + BEAD[rows[ri - 1].beads[sorted[0][1]].s].h) / 2;
-      links.push([at(ri, j), at(ri - 1, sorted[0][1]), t]);
-      const t2 = 0.6 * (BEAD[cb.s].h + BEAD[rows[ri - 1].beads[sorted[1][1]].s].h) / 2;
-      links.push([at(ri, j), at(ri - 1, sorted[1][1]), t2]);
+  const links = [];
+  // связи нити: кольцо -> 2 ближайших по углу в предыдущем непустом кольце
+  let prev = null;
+  rings.forEach(ring => {
+    if (prev && ring.live.length) {
+      for (const j of ring.live) {
+        const cb = rows[ring.ri].beads[j];
+        const a = ang(at(ring.ri, j));
+        const sorted = prev.live.map(pj => [Math.abs((((a - ang(at(prev.ri, pj))) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI), pj])
+          .sort((x, y) => x[0] - y[0]);
+        const t = 0.6 * (BEAD[cb.s].h + BEAD[rows[prev.ri].beads[sorted[0][1]].s].h) / 2;
+        links.push([at(ring.ri, j), at(prev.ri, sorted[0][1]), t]);
+        if (sorted[1]) {
+          const t2 = 0.6 * (BEAD[cb.s].h + BEAD[rows[prev.ri].beads[sorted[1][1]].s].h) / 2;
+          links.push([at(ring.ri, j), at(prev.ri, sorted[1][1]), t2]);
+        }
+      }
     }
-  }
-  // соседи по кольцу: живые бисерины ряда касаются торцами (по кругу)
-  rows.forEach((row, ri) => {
-    const live = row.beads.map((b, j) => [b, j]).filter(([b]) => b);
-    const n = live.length;
-    for (let k = 0; k < n; k++) {
-      const [b1, j1] = live[k], [b2, j2] = live[(k + 1) % n];
-      const t = (BEAD[b1.s].w + BEAD[b2.s].w) / 2;
-      links.push([at(ri, j1), at(ri, j2), t]);
+    if (ring.live.length) prev = ring;
+  });
+  // соседи по кольцу: живые бисерины одного кольца касаются торцами (по кругу)
+  rings.forEach(ring => {
+    const n = ring.live.length;
+    for (let kk = 0; kk < n; kk++) {
+      const j1 = ring.live[kk], j2 = ring.live[(kk + 1) % n];
+      const t = (BEAD[rows[ring.ri].beads[j1].s].w + BEAD[rows[ring.ri].beads[j2].s].w) / 2;
+      links.push([at(ring.ri, j1), at(ring.ri, j2), t]);
     }
   });
   return { flat, links };
@@ -860,30 +875,38 @@ function draw2D() {
   const wrap = document.getElementById('panel2d');
   const W = Math.max(400, wrap.clientWidth - 20);
   if (!m) { c2d.width = W; c2d.height = 100; return; }
-  // 2D «кружки» — настоящий горизонтальный слой: бисерины ряда вплотную
-  // по своим реальным размерам (пустые ячейки схлопываются), ряд центрируется
-  // по горизонтали. X-позиции по-прежнему в xs[j] по индексу ячейки.
+  // 2D «кружки» — горизонтальный слой = физическое КОЛЬЦО = живые бисерины
+  // ряда одной чётности колонок (как в «стежках»: нечётные колонки — ползоны
+  // ниже). Кольцо — бисерины вплотную по своим реальным размерам, центр по
+  // горизонтали. d2.rows — по уровню 2*ri+par, xs[j] заполнен только для j
+  // своей чётности (остальные NaN).
   const NC = Math.max(1, ...m.rows.map(r => r.beads.length));
   const maxC = NC * BEAD[0].w;
   const pxmm = Math.min((W - 70) / maxC, 20 / BEAD[0].w);
-  const rh = BEAD[0].h * pxmm * 1.4;
+  // все кружки одного (крупного) размера: ячейка = BEAD[0].w и по X, и по Y,
+  // зазор между кружками ≈ ⅓ диаметра (r = 3/8 ячейки → d = ¾ ячейки)
+  const bh = BEAD[0].w * pxmm;               // высота зоны одного кольца = ячейка
   const hdr = 18;                           // полоса номеров колонок сверху
-  c2d.width = W; c2d.height = m.rows.length * rh + 30 + hdr;
+  c2d.width = W; c2d.height = m.rows.length * 2 * bh + 30 + hdr;
   ctx.clearRect(0, 0, c2d.width, c2d.height);
-  d2 = { pxmm, rh, rows: [] };
-  // ширина ячейки: живая бисерина — её ширина, пустая — 0 (схлопывается)
-  const cellW = (row, j) => (row.beads[j] ? BEAD[row.beads[j].s].w : 0) * pxmm;
-  m.rows.forEach((row, ri) => {
-    const y = 15 + hdr + ri * rh + rh / 2;
-    const rowW = row.beads.reduce((a, b, j) => a + cellW(row, j), 0) * 1; // px
-    const x0 = (W - rowW) / 2;
-    const xs = [];
+  d2 = { pxmm, rh: 2 * bh, rows: [] };
+  // ширина ячейки: живая бисерина — крупная (у всех одинаковая), пустая — 0
+  const cellW = (row, j) => (row.beads[j] ? BEAD[0].w : 0) * pxmm;
+  const band = (row, ri, par, y) => {
+    let bw = 0;
+    for (let j = par; j < row.beads.length; j += 2) bw += cellW(row, j);
+    const x0 = (W - bw) / 2;
+    const xs = new Array(row.beads.length).fill(NaN);
     let acc = 0;
-    for (let j = 0; j < row.beads.length; j++) {
-      xs.push(x0 + acc + cellW(row, j) / 2);   // пустая ячейка — на месте стыка
+    for (let j = par; j < row.beads.length; j += 2) {
+      xs[j] = x0 + acc + cellW(row, j) / 2;
       acc += cellW(row, j);
     }
-    d2.rows.push({ y, x0, xs, n: row.beads.length, rowW });
+    return { ri, par, y, x0, xs, n: row.beads.length, rowW: bw };
+  };
+  m.rows.forEach((row, ri) => {
+    d2.rows.push(band(row, ri, 0, 15 + hdr + (2 * ri) * bh + bh / 2));
+    d2.rows.push(band(row, ri, 1, 15 + hdr + (2 * ri + 1) * bh + bh / 2));
   });
   // связи нити — под бисеринами (галочка «нить»): видно, какая с какой
   if (state.showThread && state.layout) {
@@ -891,22 +914,22 @@ function draw2D() {
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (const [a, b] of state.layout.links) {
-      const ra = d2.rows[a.row], rb = d2.rows[b.row];
+      const ra = d2.rows[2 * a.row + (a.idx % 2)], rb = d2.rows[2 * b.row + (b.idx % 2)];
       if (!ra || !rb) continue;
       ctx.moveTo(ra.xs[a.idx], ra.y);
       ctx.lineTo(rb.xs[b.idx], rb.y);
     }
     ctx.stroke();
   }
-  m.rows.forEach((row, ri) => {
-    const y = d2.rows[ri].y;
+  d2.rows.forEach(g => {
+    const row = m.rows[g.ri];
+    const ri = g.ri;
+    const y = g.y;
     row.beads.forEach((b, j) => {
-      if (!b) return;                            // пустая ячейка сетки
-      const x = d2.rows[ri].xs[j];
-      // крупный бисер — чуть меньше ячейки (зазор), мелкий — крупнее прежнего
-      const r = b.s
-        ? BEAD[0].w * pxmm * 0.36
-        : BEAD[0].w * pxmm * 0.44;
+      if (!b || j % 2 !== g.par) return;        // чужая чётность / пустая ячейка
+      const x = g.xs[j];
+      // кружок одинаковый у всех: r = 3/8 ячейки → зазор ¼ ячейки = ⅓ диаметра
+      const r = BEAD[0].w * pxmm * 0.375;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = state.showTension && state.tens ? tensColor(ri, j) : state.palette[b.c].c;
       ctx.fill();
@@ -926,7 +949,7 @@ function draw2D() {
       }
     });
     ctx.fillStyle = '#aaa'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText(ri + 1, d2.rows[ri].x0 - 6, y);
+    ctx.fillText(ri + 1, g.x0 - 6, y);
   });
   // номера колонок — над сеткой, каждая колонка; при узких ячейках цифра
   // повёрнута вертикально (без прореживания — нет «пропусков»)
@@ -1111,17 +1134,19 @@ c2d.addEventListener('pointerdown', e => {
     d2.rows[0].xs.forEach((x, j) => { const d = Math.abs(px - x); if (d < bdX) { bdX = d; jc = j; } });
     if (jc >= 0) pyAdj = py - d2.colShiftFn(jc);
   }
-  // ближайший ряд (полоса номеров колонок сверху не мешает)
-  let ri = -1, bdY = 1e9;
-  d2.rows.forEach((g, i) => { const d = Math.abs(pyAdj - g.y); if (d < bdY) { bdY = d; ri = i; } });
+  // ближайшая зона-кольцо (полоса номеров колонок сверху не мешает);
+  // в «кружках» d2.rows — по уровню 2*ri+par (чёт/нечёт колонок)
+  let bi = -1, bdY = 1e9;
+  d2.rows.forEach((g, i) => { const d = Math.abs(pyAdj - g.y); if (d < bdY) { bdY = d; bi = i; } });
 
   // выше/ниже сетки → добавить пустой ряд сверху/снизу
-  if (ri < 0 || bdY > d2.rh) {
+  if (bi < 0 || bdY > d2.rh) {
     if (d2.rows.length && (py < d2.rows[0].y || py > d2.rows[d2.rows.length - 1].y))
       insertRowAt(py < d2.rows[0].y ? 0 : state.model.rows.length);
     return;
   }
-  const g = d2.rows[ri];
+  const g = d2.rows[bi];
+  const ri = (g.ri !== undefined) ? g.ri : bi;
 
   // левое поле (номера рядов): клик — вставить пустой ряд НАД этим,
   // Shift+клик — удалить ряд целиком
@@ -1134,7 +1159,7 @@ c2d.addEventListener('pointerdown', e => {
 
   // ближайшая ячейка сетки (жёсткая привязка, ничего не выравнивается)
   let best = -1, bd = 1e9;
-  g.xs.forEach((x, j) => { const d = Math.abs(px - x); if (d < bd) { bd = d; best = j; } });
+  g.xs.forEach((x, j) => { if (isNaN(x)) return; const d = Math.abs(px - x); if (d < bd) { bd = d; best = j; } });
   if (best < 0) return;
 
   const has = !!state.model.rows[ri].beads[best];
