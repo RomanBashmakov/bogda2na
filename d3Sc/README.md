@@ -11,6 +11,11 @@
 
     ./run.sh              # поднимет http.server :8100 (если не запущен) и откроет браузер
 
+`run.sh` открывает браузер через `xdg-open` (Linux). На macOS сервер поднять так же,
+а браузер открыть командой `open`:
+
+    python3 -m http.server 8100 && open http://127.0.0.1:8100/
+
 или вручную:
 
     python3 -m http.server 8100
