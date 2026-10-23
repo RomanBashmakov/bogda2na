@@ -55,6 +55,7 @@ aside > section > button { width:100%; margin-top:6px; }
 .pname { font-size:12.5px; min-width:0; }
 .pcount { font-size:11.5px; color:var(--muted); width:38px; flex:none; text-align:right; }
 .pdel { background:none; color:#b3261e; padding:2px 5px; flex:none; }
+.prepl { background:none; color:var(--accent); padding:2px 4px; flex:none; }
 #zoombar { display:flex; align-items:center; gap:6px; background:#fff;
   border:1px solid var(--line); border-radius:10px; padding:6px 10px;
   margin-bottom:8px; width:max-content; }
@@ -78,6 +79,14 @@ dialog input { font:inherit; padding:6px 9px; border:1px solid var(--line);
   border-radius:7px; background:#fff; color:var(--ink); }
 dialog textarea { font:12px/1.4 ui-monospace,Consolas,monospace; padding:6px 9px;
   border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); }
+#replace-dialog .rp-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+#replace-dialog .rp-choice { display:flex; flex-direction:row; align-items:center; gap:6px;
+  color:var(--ink); font-size:13.5px; cursor:pointer; margin:0; }
+#replace-dialog .rp-choice input { width:auto; }
+#replace-dialog input[type="number"] { width:74px; padding:5px 8px; font:inherit;
+  border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); }
+#rp-swatch { width:26px; height:18px; border:1px solid var(--line); border-radius:5px; flex:none; }
+#rp-hint { font-size:12.5px; color:var(--muted); }
 main { flex:1; min-width:0; }
 #canvas-wrap { overflow:auto; max-height:calc(100vh - 260px); background:#fff;
   border:1px solid var(--line); border-radius:10px; padding:8px; }
@@ -266,6 +275,23 @@ footer { margin-top:14px; }
   </div>
 </dialog>
 
+<dialog id="replace-dialog">
+  <h2 style="margin:0 0 6px" id="rp-title">Заменить цвет</h2>
+  <p class="meta" id="rp-info" style="margin:0 0 10px"></p>
+  <div class="rp-row" id="rp-empty-row">
+    <label class="rp-choice"><input type="radio" name="rp-mode" id="rp-empty"> клетки станут пустыми</label>
+  </div>
+  <div class="rp-row">
+    <label class="rp-choice"><input type="radio" name="rp-mode" id="rp-repl"> заменить на №</label>
+    <input type="number" id="rp-num" min="0" step="1">
+  </div>
+  <div class="rp-row"><span id="rp-swatch"></span><span id="rp-hint"></span></div>
+  <div class="pair" style="justify-content:flex-end;margin-top:12px">
+    <button id="rp-cancel" class="minor" type="button">Отмена</button>
+    <button id="rp-go" class="primary" type="button">Заменить</button>
+  </div>
+</dialog>
+
 <script>
 "use strict";
 // --- состояние ---
@@ -448,9 +474,14 @@ function renderPalette() {
     del.textContent = "✕";
     del.title = "удалить цвет";
     del.addEventListener("click", () => delColor(i));
-    row.append(num, col, nm, cnt, del);
+    const repl = document.createElement("button");
+    repl.className = "prepl";
+    repl.textContent = "⇄";
+    repl.title = "заменить: все клетки этого цвета перекрасить в другой цвет палитры";
+    repl.addEventListener("click", () => openReplaceDialog(i, "repl"));
+    row.append(num, col, nm, cnt, repl, del);
     row.addEventListener("click", (ev) => {
-      if (ev.target === col || ev.target === nm || ev.target === del) return;
+      if (ev.target === col || ev.target === nm || ev.target === del || ev.target === repl) return;
       colorIdx = i;
       renderPalette();
       updateStatus();
@@ -460,15 +491,76 @@ function renderPalette() {
 }
 
 function delColor(i) {
-  if (i === 0) { alert("№0 — цвет фона, его удалить нельзя."); return; }
+  if (i === 0) { alert("№0 — цвет фона, его удалить нельзя (можно «⇄» — перекрасить его клетки в другой цвет)."); return; }
   const used = S.cells.filter(v => v === i).length;
-  const what = `Удалить цвет №${i} «${S.colors[i].name}»?` +
-    (used ? `\nБисерин этого цвета: ${used} — клетки станут пустыми, номера остальных цветов сдвинутся.` : "");
-  if (!confirm(what)) return;
+  if (used) { openReplaceDialog(i, "del"); return; }  // есть клетки — предложить замену
+  if (!confirm(`Удалить цвет №${i} «${S.colors[i].name}»? Бисерин этого цвета нет, номера остальных цветов сдвинутся.`)) return;
   pushUndo();
   S.cells = S.cells.map(v => (v === i ? -1 : (v > i ? v - 1 : v)));
   S.colors.splice(i, 1);
   if (colorIdx >= S.colors.length) colorIdx = S.colors.length - 1;
+  markDirty(true);
+  renderPalette();
+  redraw();
+  updateCounts();
+}
+
+// --- замена цвета: все клетки №i перекрашиваются, строка исчезает ---
+
+let rpIdx = -1;  // какой цвет заменяем/удаляем
+
+function updateRpHint() {
+  const j = parseInt(document.getElementById("rp-num").value, 10);
+  const ok = Number.isInteger(j) && j >= 0 && j < S.colors.length && j !== rpIdx;
+  const sw = document.getElementById("rp-swatch");
+  const hint = document.getElementById("rp-hint");
+  if (ok) {
+    sw.style.background = S.colors[j].hex;
+    hint.textContent = `№${j} — ${S.colors[j].name} (${S.colors[j].hex})`;
+  } else {
+    sw.style.background = "transparent";
+    hint.textContent = j === rpIdx ? "это тот же цвет" : "нет такого номера в палитре";
+  }
+}
+
+function openReplaceDialog(i, mode) {
+  rpIdx = i;
+  const used = S.cells.filter(v => v === i).length;
+  document.getElementById("rp-title").textContent =
+    mode === "del" ? `Удалить цвет №${i}` : `Заменить цвет №${i}`;
+  document.getElementById("rp-info").textContent =
+    `«${S.colors[i].name}» · бисерин этого цвета: ${used}`;
+  document.getElementById("rp-empty-row").style.display = mode === "del" ? "" : "none";
+  document.getElementById("rp-empty").checked = mode === "del";
+  document.getElementById("rp-repl").checked = mode !== "del";
+  const num = document.getElementById("rp-num");
+  num.value = 0;
+  num.max = S.colors.length - 1;
+  updateRpHint();
+  document.getElementById("rp-go").textContent = mode === "del" ? "Удалить" : "Заменить";
+  document.getElementById("replace-dialog").showModal();
+  if (mode !== "del") { num.focus(); num.select(); }
+}
+
+function doReplace() {
+  const i = rpIdx;
+  if (i < 0 || i >= S.colors.length) return;
+  const repl = document.getElementById("rp-repl").checked;
+  let target = -1;
+  if (repl) {
+    const j = parseInt(document.getElementById("rp-num").value, 10);
+    if (!Number.isInteger(j) || j < 0 || j >= S.colors.length || j === i) {
+      alert(`Укажи номер другого цвета из палитры: 0–${S.colors.length - 1}, кроме №${i}.`);
+      return;
+    }
+    target = j > i ? j - 1 : j;   // номер после сдвига из-за удаления строки i
+  }
+  pushUndo();
+  S.cells = S.cells.map(v => (v === i ? target : (v > i ? v - 1 : v)));
+  S.colors.splice(i, 1);
+  if (colorIdx === i) colorIdx = target >= 0 ? target : 0;
+  if (colorIdx >= S.colors.length) colorIdx = S.colors.length - 1;
+  document.getElementById("replace-dialog").close();
   markDirty(true);
   renderPalette();
   redraw();
@@ -1432,6 +1524,13 @@ function wire() {
     } catch (e) {
       alert("Вставка не удалась: " + e.message);
     }
+  });
+  document.getElementById("rp-cancel").addEventListener("click", () =>
+    document.getElementById("replace-dialog").close());
+  document.getElementById("rp-go").addEventListener("click", doReplace);
+  document.getElementById("rp-num").addEventListener("input", updateRpHint);
+  document.getElementById("rp-num").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") doReplace();
   });
   document.querySelectorAll("#anchor-box .anchor").forEach((b) => {
     b.addEventListener("click", () => {
