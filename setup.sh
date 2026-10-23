@@ -93,17 +93,15 @@ fi
 echo
 echo "Запуск генераторов (из корня проекта):"
 if [ "$RUN" = ".venv/bin/python" ]; then
-    echo "  .venv/bin/python patterns/glitch.py -t belt_90 --text \"ГЛИТЧ\""
-    echo "  .venv/bin/python belt_rus_generator/belt_rus.py"
-    echo "  .venv/bin/python picher/digitize.py картинка.png -n 8"
+    echo "  .venv/bin/python text2glitch/glitch.py -t belt_90 --text \"ГЛИТЧ\""
+    echo "  .venv/bin/python painter/digitize.py картинка.png -n 8"
     echo
     echo "Короче — после активации окружения:"
     echo "  source .venv/bin/activate"
-    echo "  python picher/digitize.py картинка.png -n 8"
+    echo "  python painter/digitize.py картинка.png -n 8"
 else
-    echo "  $PY patterns/glitch.py -t belt_90 --text \"ГЛИТЧ\""
-    echo "  $PY belt_rus_generator/belt_rus.py"
-    echo "  $PY picher/digitize.py картинка.png -n 8"
+    echo "  $PY text2glitch/glitch.py -t belt_90 --text \"ГЛИТЧ\""
+    echo "  $PY painter/digitize.py картинка.png -n 8"
 fi
 echo
 echo "Шпаргалка по любому генератору: <python> <скрипт> help"
