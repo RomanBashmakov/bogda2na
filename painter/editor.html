@@ -121,6 +121,7 @@ footer { margin-top:14px; }
   <button id="btn-export" class="minor">Экспорт JSON</button>
   <button id="btn-import" class="minor">Импорт JSON</button>
   <button id="btn-print" class="minor" title="печатная A4-схема с кружками и легендой">🖨 Распечатать A4</button>
+  <button id="btn-sieves" class="minor" title="STL-сита на каждый номер цвета — для засыпки бисера в матрицу через трафарет">⧉ Сита STL</button>
   <input type="file" id="file-import" accept=".json,application/json" hidden>
   <span id="dirty-flag" class="flag" title="есть несохранённые изменения">●</span>
   <span id="totals" class="meta"></span>
@@ -1392,6 +1393,45 @@ function openPrintDialog() {
   document.getElementById("print-dialog").showModal();
 }
 
+async function downloadSieves() {
+  const name = document.getElementById("scheme-name").value.trim();
+  if (!name) {
+    alert("Укажите имя схемы: сита делаются из сохранённой на сервере схемы (Ctrl+S — сохранить).");
+    document.getElementById("scheme-name").focus();
+    return;
+  }
+  if (S.dirty && !confirm("Есть несохранённые изменения — сита делаются из " +
+      "последней сохранённой версии. Продолжить?"))
+    return;
+  const btn = document.getElementById("btn-sieves");
+  btn.disabled = true;
+  btn.textContent = "⧉ Делаю сита…";
+  try {
+    const res = await fetch("/painter/api/sieves", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      let msg = "HTTP " + res.status;
+      try { msg = (await res.json()).error || msg; } catch (e) {}
+      alert(msg);
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name + "_sieves.zip";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert("Сервер недоступен: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⧉ Сита STL";
+  }
+}
+
 async function doPrint() {
   const name = document.getElementById("scheme-name").value.trim();
   const go = document.getElementById("pr-go");
@@ -1554,6 +1594,7 @@ function wire() {
   document.getElementById("btn-import").addEventListener("click", () =>
     document.getElementById("file-import").click());
   document.getElementById("btn-print").addEventListener("click", openPrintDialog);
+  document.getElementById("btn-sieves").addEventListener("click", downloadSieves);
   document.getElementById("pr-cancel").addEventListener("click", () =>
     document.getElementById("print-dialog").close());
   document.getElementById("pr-go").addEventListener("click", doPrint);

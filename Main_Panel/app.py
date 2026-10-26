@@ -31,19 +31,22 @@ sudo apt install python3-flask. Pillow нужна только painter/digitize.
 """
 
 import argparse
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
+import zipfile
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, \
-    send_from_directory
+    send_file, send_from_directory
 
 WEB_DIR = Path(__file__).resolve().parent
 ROOT = WEB_DIR.parent
@@ -568,6 +571,54 @@ def painter_api_print():
     except ValueError as e:
         return jsonify(ok=False, error=str(e)), 400
     return jsonify(ok=True, files=files)
+
+
+SIEVE_DIR = ROOT / "3D" / "STL_3d_matrix"
+
+
+def _sieve_mod():
+    """Модуль 3D/STL_3d_matrix/make_sieve.py (trimesh; STL сит-трафаретов)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "make_sieve", SIEVE_DIR / "make_sieve.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@app.post("/painter/api/sieves")
+def painter_api_sieves():
+    """Кнопка «Сита STL»: схема → ZIP со STL на каждый номер цвета."""
+    p = request.get_json(force=True, silent=True) or {}
+    name = _pich_name(p.get("name"))
+    path = PICH_SCHEMES / f"{name}.json"
+    if not name:
+        return jsonify(ok=False, error="Укажите имя схемы"), 400
+    if not path.is_file():
+        return jsonify(ok=False, error="Схемы нет (Ctrl+S — сохранить)"), 404
+    try:
+        data = _pich_data(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as e:
+        return jsonify(ok=False, error=f"Файл битый: {e}"), 400
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    try:
+        with tempfile.TemporaryDirectory(prefix="sieves_") as tmp:
+            files = _sieve_mod().make_sieves(data, tmp, name)
+            if not files:
+                return jsonify(ok=False, error="В схеме нет бисерин"), 400
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in files:
+                    zf.write(Path(tmp) / f, f)
+            buf.seek(0)
+    except ImportError:
+        return jsonify(ok=False, error="На сервере нет trimesh "
+                    "(.venv: pip install trimesh manifold3d)"), 500
+    except Exception as e:  # ошибка булевых операций trimesh и т.п.
+        return jsonify(ok=False, error=f"Генерация не удалась: {e}"), 500
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"{name}_sieves.zip")
 
 
 def main():

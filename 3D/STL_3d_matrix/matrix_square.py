@@ -1,34 +1,84 @@
+import argparse
+
 import trimesh
 import numpy as np
 
+ap = argparse.ArgumentParser(description="Матрица ячеек под бисер")
+ap.add_argument("--plate", type=float, default=250.0,
+                help="сторона квадратной пластины, мм (по умолчанию 250)")
+ap.add_argument("--nx", type=int, help="число ячеек по горизонтали (пластина "
+                 "растягивается вправо-вниз под заданную сетку)")
+ap.add_argument("--ny", type=int, help="число ячеек по вертикали")
+ap.add_argument("-o", "--out", help="имя выходного STL")
+
 # --- Параметры (мм) ---
-plate_size = 250.0
-thickness = 2.0
+args = ap.parse_args()
+plate_size = args.plate
+nx_arg, ny_arg = args.nx, args.ny
+thickness = 1.0
 square_side = 3.0       # сторона квадратного отверстия
-spacing = 4.5           # расстояние между центрами отверстий
+spacing = 3.75          # расстояние между центрами отверстий (стенка 0.75 мм)
+border = 3.0            # кромка от края пластины до первой ячейки
+# Окантовка-ключ для сит: полосы слева и сверху, толщина 2 мм (от края
+# до 2 мм — ложится на кромку), высота 1 мм над пластиной, длина ~1/3 стороны.
+key_thickness = 2.0
+key_height = 1.0
+key_length = plate_size / 3.0
 
 half = square_side / 2.0
 
-# Количество отверстий
-n = int((plate_size - 2 * half) // spacing) + 1
-start = -(n - 1) * spacing / 2.0
-print(f"Отверстий: {n} x {n} = {n * n}")
+if nx_arg and ny_arg:
+    # Прямоугольная пластина под заданную сетку: ячейки прижаты
+    # к левому-верхнему углу (стороны ключа), как у квадратных версий.
+    plate_w = 2 * border + square_side + (nx_arg - 1) * spacing
+    plate_h = 2 * border + square_side + (ny_arg - 1) * spacing
+else:
+    plate_w = plate_h = plate_size
+
+half_w = plate_w / 2.0
+half_h = plate_h / 2.0
+
+# Количество отверстий: от линии сетки (border) до края минус ячейка
+if nx_arg and ny_arg:
+    n_x, n_y = nx_arg, ny_arg
+else:
+    n = int((plate_size - 2 * border - square_side) // spacing) + 1
+    n_x = n_y = n
+# Центры ячеек: ряд 0 прижат к ЛЕВОМУ-ВЕРХНЕМУ углу (стороны ключа),
+# остаток поля уходит вправо-вниз.
+start_x = -half_w + border + half
+start_y = half_h - border - half
+print(f"Пластина: {plate_w:g} x {plate_h:g} мм, отверстий: {n_x} x {n_y} = {n_x * n_y}")
 
 # 1. Пластина
-plate = trimesh.creation.box(extents=[plate_size, plate_size, thickness])
+plate = trimesh.creation.box(extents=[plate_w, plate_h, thickness])
+
+# 1а. Окантовка-ключ (лентами по левому и верхнему краю, поверх пластины)
+key_parts = [
+    trimesh.creation.box(extents=[key_thickness, key_length, key_height])
+        .apply_translation([-half_w + key_thickness / 2.0,
+                            half_h - key_length / 2.0,
+                            thickness / 2.0 + key_height / 2.0]),
+    trimesh.creation.box(extents=[key_length, key_thickness, key_height])
+        .apply_translation([-half_w + key_length / 2.0,
+                            half_h - key_thickness / 2.0,
+                            thickness / 2.0 + key_height / 2.0]),
+]
+plate = trimesh.boolean.union([plate] + key_parts, engine='manifold',
+                              process=True)
 
 # 2. Шаблон одного квадратного "прутка" (вытянутый по Z куб)
 #    Высота с запасом, чтобы точно проткнул пластину
 prism_template = trimesh.creation.box(
-    extents=[square_side, square_side, thickness + 2.0]
+    extents=[square_side, square_side, thickness + key_height + 2.0]
 )
 
 # 3. Трансформации для всех отверстий
 transforms = []
-for i in range(n):
-    for j in range(n):
-        x = start + i * spacing
-        y = start + j * spacing
+for i in range(n_x):
+    for j in range(n_y):
+        x = start_x + i * spacing
+        y = start_y - j * spacing
         T = np.eye(4)
         T[:3, 3] = [x, y, 0.0]
         transforms.append(T)
@@ -45,5 +95,13 @@ result = trimesh.boolean.difference(
 )
 
 # 6. Экспорт
-result.export('plate_with_square_holes.stl')
-print("STL сохранён: plate_with_square_holes.stl")
+if args.out:
+    out = args.out
+elif nx_arg and ny_arg:
+    out = f"plate_with_square_holes_{nx_arg}x{ny_arg}.stl"
+elif plate_size != 250.0:
+    out = f"plate_with_square_holes_{plate_size:g}.stl"
+else:
+    out = "plate_with_square_holes.stl"
+result.export(out)
+print(f"STL сохранён: {out}")
