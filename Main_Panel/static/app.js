@@ -178,6 +178,38 @@ $("#form-img").addEventListener("submit", async (ev) => {
   }
 });
 
+// --- опалубка: рамка под полотно (STL) ---
+
+$("#form-opalubka").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const btn = form.querySelector(".run");
+  const box = $("#run-result");
+  btn.disabled = true;
+  box.classList.remove("hidden", "ok", "err");
+  box.textContent = "Генерирую STL…";
+  try {
+    const r = await api("/api/opalubka", formParams(form));
+    if (r.ok) {
+      box.classList.add("ok");
+      const links = (r.files || []).map((f) =>
+        `<a href="${viewUrl("opalubka", f)}" target="_blank" rel="noopener">${esc(f)}</a>`);
+      box.innerHTML = "<strong>Готово.</strong> " + links.join(" · ") +
+        (r.stdout ? `<pre>${esc(r.stdout.trim())}</pre>` : "");
+    } else {
+      box.classList.add("err");
+      const tail = (r.stderr || r.error || r.stdout || "").trim().split("\n");
+      box.innerHTML = "<strong>Ошибка.</strong>" +
+        `<pre>${esc(tail.slice(-30).join("\n"))}</pre>`;
+    }
+  } catch (e) {
+    box.classList.add("err");
+    box.textContent = "Сервер недоступен: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // --- загрузка картинок ---
 
 $("#img-upload-btn").addEventListener("click", async () => {
