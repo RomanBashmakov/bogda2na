@@ -18,6 +18,7 @@
   <button class="tab active" data-tab="glitch">Надпись</button>
   <button class="tab" data-tab="img">Картинка</button>
   <button class="tab" data-tab="picher">Рисовать схему</button>
+  <button class="tab" data-tab="opalubka">Опалубка</button>
 </nav>
 
 <section id="glitch" class="panel active">
@@ -91,6 +92,43 @@
      схему с кружками и легендой в <code>picher/out/</code> (видна ниже
      в списке «Готовые схемы»).</p>
   <a class="run link-run" href="/picher" target="_blank" rel="noopener">Открыть редактор →</a>
+</section>
+
+<section id="opalubka" class="panel">
+  <form id="form-opalubka" class="gen-form">
+    <div class="grid">
+      <label>Бисерин в ряду <input name="cols" type="number" min="1" step="1" value="26"></label>
+      <label>Рядов <input name="rows" type="number" min="1" step="1" value="52"></label>
+      <label>Бисерина, ширина мм <input name="bead-w" type="number" step="0.0001" min="0.1" value="1.4615"></label>
+      <label>Бисерина, высота мм <input name="bead-h" type="number" step="0.0001" min="0.1" value="1.7308"></label>
+      <label>Толщина полотна, мм <input name="fabric-t" type="number" step="0.01" min="0.1" value="1.73"></label>
+      <label>Высота зубчиков, мм <input name="tooth-h" type="number" step="0.05" min="0.2" value="1.0"></label>
+      <label>Выступ полочки, мм <input name="ledge" type="number" step="0.05" min="0.2" value="1.0"></label>
+      <label>Толщина рамки, мм <input name="border" type="number" step="0.1" min="1" value="3.8" title="от края окна; включает юбку-ключ верхней половинки"></label>
+      <label class="wide">Имя файлов <input name="name" placeholder="opalubka"></label>
+    </div>
+    <details>
+      <summary>Дополнительно (прорези, посадка, толщины…)</summary>
+      <div class="grid">
+        <label>Зазор между зубьями, мм <input name="slot" type="number" step="0.05" min="0.15" value="0.6"></label>
+        <label>Наклон зубьев от полотна, мм <input name="tooth-lean" type="number" step="0.05" min="0" value="0.25" title="0 — прямые зубья"></label>
+        <label>Канавка за зубьями, мм <input name="channel" type="number" step="0.05" min="0.45" value="0.6" title="зазор между зубьями и рамкой, куда надевается нить"></label>
+        <label>Зазор посадки, мм <input name="clearance" type="number" step="0.05" min="0" value="0.15"></label>
+        <label>Дно под полочкой, мм <input name="base-t" type="number" step="0.1" min="0.4" value="0.7"></label>
+        <label>Пластина верха, мм <input name="top-t" type="number" step="0.1" min="0.4" value="1.0"></label>
+        <label>Высота пальца, мм <input name="finger" type="number" step="0.1" min="0.3" value="0.7"></label>
+        <label>Стенка и юбка, мм <input name="wall" type="number" step="0.05" min="0.5" value="0.6" title="наружная стенка низа и юбка-ключ верха"></label>
+        <label>Канавка для хвостов, мм <input name="tail-groove" type="number" step="0.05" min="0" value="0.2" title="углубление вдоль внешней стенки, куда через прорези ложатся и подклеиваются хвосты ниток"></label>
+      </div>
+    </details>
+    <p class="meta">Рамка-опалубка, на которой полотно собирается и в которой
+       остаётся: низ с гребёнкой (полотно кладётся рядами в прорези, затем
+       вертикальная прошивка), верх — прижим-«негатив». Полотно =
+       бисерин × размер бисерины (26×1.4615 × 52×1.7308 → 38×90 мм), окно
+       сквозное с двух сторон. Две детали STL: печать плашмя в ориентации
+       файла, без поддержек. Файлы — в <code>3D/opalubka/out/</code>.</p>
+    <button class="run" type="submit">Сгенерировать STL</button>
+  </form>
 </section>
 
 <div id="run-result" class="run-result hidden"></div>

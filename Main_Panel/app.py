@@ -11,6 +11,8 @@
   * формы запуска генератора — text2glitch/glitch.py (надпись → схема);
   * вкладка «Картинка» — оцифровка painter/digitize.py: загруженная
     картинка → JSON-схема в painter/schemes/, правка и печать в редакторе;
+  * вкладка «Опалубка» — 3D/opalubka/make_opalubka.py: параметры рамки →
+     две STL-половинки (низ с гребёнкой, верх-прижим) в 3D/opalubka/out/;
   * редактор схем «painter» — страница /painter: рисование/правка схемы
     мышью, сохранение/открытие/удаление JSON-схем и печать кнопкой
     «Распечатать A4» (painter/render.py → painter/out/, файлы видны
@@ -56,6 +58,10 @@ GENERATORS = {
     # печать из редактора painter (painter/render.py) кладёт файлы сюда
     "painter": {"script": None,
                "dir": PICH, "label": "Painter"},
+    # вкладка «Опалубка»: STL-половинки рамки (свой эндпоинт /api/opalubka,
+    # файлов .html не создаёт, в списке схем не видна)
+    "opalubka": {"script": ROOT / "3D" / "opalubka" / "make_opalubka.py",
+                 "dir": ROOT / "3D" / "opalubka", "label": "Опалубка"},
 }
 
 UPLOAD_EXT = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
@@ -154,6 +160,29 @@ def build_digitize_argv(p):
         name = BAD_NAME.sub("_", str(p["name"]).strip())
         argv += ["--name", name]
     return argv, name
+
+
+def build_opalubka_argv(p):
+    """argv для 3D/opalubka/make_opalubka.py (форма вкладки «Опалубка»)."""
+    argv = [str(GENERATORS["opalubka"]["script"])]
+    ints = (("cols", "бисерин в ряду"), ("rows", "рядов"))
+    for key, label in ints:
+        if str(p.get(key) or "").strip():
+            argv += ["--" + key, str(_num(p[key], int, label))]
+    floats = (("bead-w", "ширина бисерины"), ("bead-h", "высота бисерины"),
+              ("fabric-t", "толщина полотна"), ("tooth-h", "высота зубчиков"),
+              ("tooth-lean", "наклон зубьев"), ("ledge", "выступ полочки"),
+              ("border", "толщина рамки"),
+              ("slot", "зазор между зубьями"),
+              ("channel", "канавка за зубьями"), ("clearance", "зазор посадки"),
+              ("base-t", "дно"), ("top-t", "пластина верха"),
+              ("finger", "высота пальца"), ("wall", "стенка кармана"),
+               ("tail-groove", "канавка для хвостов"))
+    for key, label in floats:
+        if str(p.get(key) or "").strip():
+            argv += ["--" + key, str(_num(p[key], float, label))]
+    name = BAD_NAME.sub("_", str(p.get("name") or "").strip()) or "opalubka"
+    return argv + ["--name", name], name
 
 
 def snapshot_out():
@@ -293,6 +322,38 @@ def api_img2painter():
         m = re.search(r"^СХЕМА: (.+)$", proc.stdout, re.M)
         name = m.group(1).strip() if m else Path(argv[1]).stem
     return jsonify(ok=True, name=name, stdout=proc.stdout, stderr=proc.stderr)
+
+
+@app.post("/api/opalubka")
+def api_opalubka():
+    """Вкладка «Опалубка»: две STL-половинки рамки (subprocess, чистый
+    Python без зависимостей). Ответ — имена файлов в 3D/opalubka/out/.
+    """
+    p = request.get_json(force=True, silent=True) or {}
+    try:
+        argv, name = build_opalubka_argv(p)
+    except BadInput as e:
+        return jsonify(ok=False, error=str(e)), 400
+    try:
+        proc = subprocess.run(
+            [python_bin()] + argv, cwd=str(GENERATORS["opalubka"]["dir"]),
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=300)
+    except subprocess.TimeoutExpired:
+        return jsonify(ok=False, error="Скрипт не завершился за 5 минут"), 504
+    except OSError as e:
+        return jsonify(ok=False, error=f"Не удалось запустить: {e}"), 500
+    if proc.returncode != 0:
+        return jsonify(ok=False, stdout=proc.stdout, stderr=proc.stderr), 400
+    files = [f"{name}_bottom.stl", f"{name}_top.stl"]
+    od = out_dir("opalubka")
+    missing = [f for f in files if not (od / f).is_file()]
+    if missing:
+        return jsonify(ok=False, error="Скрипт не создал: "
+                       + ", ".join(missing),
+                       stdout=proc.stdout, stderr=proc.stderr), 500
+    return jsonify(ok=True, files=files,
+                   stdout=proc.stdout, stderr=proc.stderr)
 
 
 @app.post("/api/upload")
