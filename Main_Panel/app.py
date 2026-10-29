@@ -174,13 +174,12 @@ def build_opalubka_argv(p):
             argv += ["--" + key, str(_num(p[key], int, label))]
     floats = (("bead-w", "ширина бисерины"), ("bead-h", "высота бисерины"),
               ("fabric-t", "толщина полотна"), ("tooth-h", "высота зубчиков"),
-              ("tooth-lean", "наклон зубьев"), ("ledge", "выступ полочки"),
+              ("shelf-t", "толщина полки"), ("ledge", "выступ полочки"),
               ("border", "толщина рамки"),
-              ("slot", "зазор между зубьями"),
-              ("channel", "канавка за зубьями"), ("clearance", "зазор посадки"),
+              ("slot", "ширина окошка"),
+              ("clearance", "зазор посадки"),
               ("base-t", "дно"), ("top-t", "пластина верха"),
-              ("finger", "высота пальца"), ("wall", "стенка кармана"),
-               ("tail-groove", "канавка для хвостов"))
+              ("finger", "высота пальца"), ("wall", "юбка-ключ"))
     for key, label in floats:
         if str(p.get(key) or "").strip():
             argv += ["--" + key, str(_num(p[key], float, label))]

@@ -15,10 +15,15 @@ ap.add_argument("-o", "--out", help="имя выходного STL")
 args = ap.parse_args()
 plate_size = args.plate
 nx_arg, ny_arg = args.nx, args.ny
-thickness = 1.0
+thickness = 3.5            # бисерина полностью спрятана + запас
 square_side = 3.0       # сторона квадратного отверстия
 spacing = 3.75          # расстояние между центрами отверстий (стенка 0.75 мм)
 border = 3.0            # кромка от края пластины до первой ячейки
+# Канавки-«бороздки» для иголки: горизонтальные, вдоль каждого ряда,
+# режут перегородки между соседними ячейками; ширина 1 мм, глубина
+# thickness - groove_bottom_rest, под канавкой остаётся материал 1 мм.
+groove_width = 1.0
+groove_rest = 1.0       # материал под дном канавки
 # Окантовка-ключ для сит: полосы слева и сверху, толщина 2 мм (от края
 # до 2 мм — ложится на кромку), высота 1 мм над пластиной, длина ~1/3 стороны.
 key_thickness = 2.0
@@ -84,15 +89,44 @@ for i in range(n_x):
         transforms.append(T)
 
 # 4. Объединяем все призмы в один меш (одна булева операция)
-holes = trimesh.util.concatenate(
+holes_cells = trimesh.util.concatenate(
     [prism_template.copy().apply_transform(T) for T in transforms]
 )
-print(f"Меш отверстий: {len(holes.faces)} треугольников")
+print(f"Меш отверстий: {len(holes_cells.faces)} треугольников")
 
-# 5. Булева разность
+# 4а. Канавки-«бороздки» под иголку: горизонтальная канавка вдоль центра
+#     каждого ряда (по Y — groove_width, по X — на всю ширину сетки),
+#     режет перегородки между соседними ячейками. Сверху протыкает
+#     насквозь, снизу дно на groove_rest от низа пластины.
+groove_depth = thickness - groove_rest          # глубина от верха
+# длина с запасом ±1 мм в кромку: торцы канавки НЕ должны совпадать
+# с плоскостями стенок крайних ячеек (иначе вырожденные грани)
+groove_len = (n_x - 1) * spacing + square_side + 2.0
+groove_zc = -thickness / 2.0 + groove_rest + (groove_depth + 1.0) / 2.0
+grooves = [
+    trimesh.creation.box(
+        extents=[groove_len, groove_width, groove_depth + 1.0])
+        .apply_translation([start_x - half - 1.0 + groove_len / 2.0,
+                            start_y - j * spacing, groove_zc])
+    for j in range(n_y)
+]
+holes_grooves = trimesh.util.concatenate(grooves)
+print(f"Канавок: {n_y} (ширина {groove_width:g} мм, глубина {groove_depth:g} мм)")
+
+# 5. Булева разность: сначала ячейки, потом канавки (две отдельные
+#    операции — manifold надёжнее, чем всё одним вычитанием)
 result = trimesh.boolean.difference(
-    [plate, holes], engine='manifold', process=True
+    [plate, holes_cells], engine='manifold', process=True
 )
+result = trimesh.boolean.difference(
+    [result, holes_grooves], engine='manifold', process=True
+)
+# чистка вырожденных граней от совпадающих плоскостей (неwatertight у слайсеров)
+result.merge_vertices()
+result.update_faces(result.area_faces > 1e-10)
+result.merge_vertices()
+print(f"Готово: watertight={result.is_watertight}, "
+      f"{len(result.faces)} треугольников")
 
 # 6. Экспорт
 if args.out:
